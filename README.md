@@ -1,1 +1,1 @@
-# activationdegree
+# Activation degree
