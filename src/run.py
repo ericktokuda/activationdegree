@@ -17,12 +17,7 @@ from myutils import info, create_readme
 
 
 ##########################################################
-def create_transmatrix(adj):
-    """Create transition matrix of a random walk"""
-    return adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
-
-##########################################################
-def randomwalk(l, startnode, trans, outdir):
+def randomwalk(l, startnode, trans):
     """Random walk assuming a transition matrix with elements such that
     trans[i, j] represents the probability of i going j."""
     info(inspect.stack()[0][3] + '()')
@@ -41,14 +36,23 @@ def main(seed, outdir):
 
     np.random.seed(seed); random.seed(seed)
 
-    n = 200
+    n = 25
     k = 5
     m = round(k/2)
     width = int(np.sqrt(n))
 
     outpath = pjoin(outdir, 'la.pdf')
     g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
-    igraph.plot(g, outpath, layout='grid')
+    adj = np.array(g.get_adjacency().data)
+
+    # igraph.plot(g, outpath, layout='grid')
+    l = 3
+    startnode = 5
+    trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
+    walk = randomwalk(l, startnode, trans)
+    print(adj)
+    print(walk)
+    return
 
     erdosprob = k / n
     outpath = pjoin(outdir, 'er.pdf')
@@ -99,7 +103,7 @@ if __name__ == "__main__":
     info(datetime.date.today())
     t0 = time.time()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--seed', default=0, help='Random seed')
+    parser.add_argument('--seed', default=0, type=int, help='Random seed')
     parser.add_argument('--outdir', default='/tmp/out/', help='Output directory')
     args = parser.parse_args()
 
