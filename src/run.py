@@ -15,12 +15,38 @@ import matplotlib.pyplot as plt
 import igraph
 from myutils import info, create_readme
 
+##########################################################
+def generate_data(top, n, k):
+    """Generate data"""
+    info(inspect.stack()[0][3] + '()')
+    m = round(k / 2)
+    width = int(np.sqrt(n))
+    if top == 'la':
+        g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
+    elif top == 'er':
+        erdosprob = k / n
+        g = igraph.Graph.Erdos_Renyi(n, erdosprob)
+        igraph.plot(g, outpath)
+    elif top == 'ba':
+        g = igraph.Graph.Barabasi(n, m)
+        igraph.plot(g, outpath)
+    elif top == 'ws':
+        rewprob = 0.2
+        g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
+        g.rewire_edges(rewprob)
+        igraph.plot(g, outpath)
+    elif top == 'gr':
+        radius = 3 # radius = get_rgg_params(n, k)
+        g = igraph.Graph.GRG(n, radius)
+        igraph.plot(g, outpath)
+    g.to_directed()
+    return g
 
 ##########################################################
 def randomwalk(l, startnode, trans):
     """Random walk assuming a transition matrix with elements such that
     trans[i, j] represents the probability of i going j."""
-    info(inspect.stack()[0][3] + '()')
+    # info(inspect.stack()[0][3] + '()')
     n = trans.shape[1]
     walk = [startnode]
     for i in range(l):
@@ -32,7 +58,7 @@ def randomwalk(l, startnode, trans):
 ##########################################################
 def remove_arc_conn(g):
     """Remove and arc while keep the graph strongly connected"""
-    info(inspect.stack()[0][3] + '()')
+    # info(inspect.stack()[0][3] + '()')
     edgeids = np.arange(0, g.ecount())
     np.random.shuffle(edgeids)
 
@@ -51,7 +77,7 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     for i in range(nsteps):
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
-            if not succ: return False
+            if not succ: return [], False
             else: g = newg
         adj = np.array(g.get_adjacency().data)
         trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
@@ -63,7 +89,25 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
         
         for v, c in zip(vs, cs):
             countsall[i, v] = c
-    return countsall
+    return countsall, True
+
+##########################################################
+def plot_graph(g, top, outdir):
+    """Plot graph"""
+    if top == 'la':
+        igraph.plot(g, pjoin(outdir, top + '.png'), layout='grid')
+    else:
+        igraph.plot(g, pjoin(outdir, top + '.png'), layout='fr')
+
+##########################################################
+def initial_check(nepochs, batchsz, g):
+    """Check whether too many arcs are being removed."""
+    if (nepochs * batchsz) > (0.75 * g.ecount()):
+        info('Consider altering nepochs, batchsz, and avgdegree.')
+        info('Execution may fail.')
+        raise Exception('Too may arcs to be removed.')
+    elif not g.is_connected(mode='strong'):
+        raise Exception('Initial graph is not strongly connected.')
 
 ##########################################################
 def main(seed, outdir):
@@ -74,63 +118,28 @@ def main(seed, outdir):
 
     n = 500
     k = 5 # nvertcies ~= (k * n) / 2
-    nsteps = 10
+    nepochs = 10
     batchsz = 3
-    m = round(k/2)
-    width = int(np.sqrt(n))
     nrealizations = 3
+    top = 'la'
+    walklen = 100
 
     outpath = pjoin(outdir, 'la.pdf')
-    g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
-    # adj = np.array(g.get_adjacency().data)
-    # trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
-    # igraph.plot(g, outpath, layout='grid')
 
-    walklen = 100
-    startnode = 5
+    g = generate_data(top, n, k)
+    plot_graph(g, top, outdir)
+    initial_check(nepochs, batchsz, g)
 
-    # walk = randomwalk(l, startnode, trans)
-    # print(adj)
-    # print(walk)
-    # counts = np.zeros(len(adj), dtype=int)
-    # vs, cs = np.unique(walk, return_counts=True)
-    # for v, c in zip(vs, cs):
-        # counts[v] = c
-    # print(counts)
-    # breakpoint()
-
-    countsall = - np.ones((nrealizations, nsteps, g.vcount()), dtype=int)
+    countsall = - np.ones((nrealizations, nepochs, g.vcount()), dtype=int)
     for r in range(nrealizations):
-        # countsall[r, :, :] = run_experiment(g, nsteps, batchsz, walklen)
-        z = run_experiment(g, nsteps, batchsz, walklen)
-        print(z)
-        countsall[r, :, :] = z
+        ret, succ = run_experiment(g, nepochs, batchsz, walklen)
+        if not succ: info('DECIDE WHAT TO DO')
+        else: countsall[r, :, :] = ret
+    
     breakpoint()
     
-    
     return
 
-    erdosprob = k / n
-    outpath = pjoin(outdir, 'er.pdf')
-    g = igraph.Graph.Erdos_Renyi(n, erdosprob)
-    igraph.plot(g, outpath)
-
-    outpath = pjoin(outdir, 'ba.pdf')
-    g = igraph.Graph.Barabasi(n, m)
-    igraph.plot(g, outpath)
-
-    outpath = pjoin(outdir, 'ws.pdf')
-    rewprob = 0.2
-    g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
-    g.rewire_edges(rewprob)
-    igraph.plot(g, outpath)
-
-    outpath = pjoin(outdir, 'gr.pdf')
-    radius = 3 # radius = get_rgg_params(n, k)
-    g = igraph.Graph.GRG(n, radius)
-    igraph.plot(g, outpath)
-
-    return
     # g = g.clusters().giant()
 
     if topologymodel in ['gr', 'wx']:
