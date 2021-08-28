@@ -30,28 +30,84 @@ def randomwalk(l, startnode, trans):
     return walk
 
 ##########################################################
+def remove_arc_conn(g):
+    """Remove and arc while keep the graph strongly connected"""
+    info(inspect.stack()[0][3] + '()')
+    edgeids = np.arange(0, g.ecount())
+    np.random.shuffle(edgeids)
+
+    for eid in edgeids:
+        newg = g.copy()
+        newg.delete_edges([g.es[eid]])
+        if newg.is_connected(mode='strong'):
+            return newg, True
+    return g, False
+
+##########################################################
+def run_experiment(gorig, nsteps, batchsz, walklen):
+    """Removal of arcs and evaluation of walks."""
+    g = gorig.copy()
+    countsall = np.zeros((nsteps, g.vcount()), dtype=int)
+    for i in range(nsteps):
+        for _ in range(batchsz):
+            newg, succ = remove_arc_conn(g)
+            if not succ: return False
+            else: g = newg
+        adj = np.array(g.get_adjacency().data)
+        trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
+
+        startnode = np.random.randint(0, g.vcount())
+        #TODO: perform multiple walks for each intermediate graph?
+        walk = randomwalk(walklen, startnode, trans)
+        vs, cs = np.unique(walk, return_counts=True)
+        
+        for v, c in zip(vs, cs):
+            countsall[i, v] = c
+    return countsall
+
+##########################################################
 def main(seed, outdir):
     """Short description"""
     info(inspect.stack()[0][3] + '()')
 
     np.random.seed(seed); random.seed(seed)
 
-    n = 25
-    k = 5
+    n = 500
+    k = 5 # nvertcies ~= (k * n) / 2
+    nsteps = 10
+    batchsz = 3
     m = round(k/2)
     width = int(np.sqrt(n))
+    nrealizations = 3
 
     outpath = pjoin(outdir, 'la.pdf')
     g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
-    adj = np.array(g.get_adjacency().data)
-
+    # adj = np.array(g.get_adjacency().data)
+    # trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
     # igraph.plot(g, outpath, layout='grid')
-    l = 3
+
+    walklen = 100
     startnode = 5
-    trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
-    walk = randomwalk(l, startnode, trans)
-    print(adj)
-    print(walk)
+
+    # walk = randomwalk(l, startnode, trans)
+    # print(adj)
+    # print(walk)
+    # counts = np.zeros(len(adj), dtype=int)
+    # vs, cs = np.unique(walk, return_counts=True)
+    # for v, c in zip(vs, cs):
+        # counts[v] = c
+    # print(counts)
+    # breakpoint()
+
+    countsall = - np.ones((nrealizations, nsteps, g.vcount()), dtype=int)
+    for r in range(nrealizations):
+        # countsall[r, :, :] = run_experiment(g, nsteps, batchsz, walklen)
+        z = run_experiment(g, nsteps, batchsz, walklen)
+        print(z)
+        countsall[r, :, :] = z
+    breakpoint()
+    
+    
     return
 
     erdosprob = k / n
