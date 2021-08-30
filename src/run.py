@@ -28,19 +28,15 @@ def generate_data(top, n, k, directed):
     elif top == 'er':
         erdosprob = k / n
         g = igraph.Graph.Erdos_Renyi(n, erdosprob)
-        igraph.plot(g, outpath)
     elif top == 'ba':
         g = igraph.Graph.Barabasi(n, m)
-        igraph.plot(g, outpath)
     elif top == 'ws':
         rewprob = 0.2
         g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
         g.rewire_edges(rewprob)
-        igraph.plot(g, outpath)
     elif top == 'gr':
         radius = 3 # radius = get_rgg_params(n, k)
         g = igraph.Graph.GRG(n, radius)
-        igraph.plot(g, outpath)
     if directed: g.to_directed()
     return g
 
