@@ -1,12 +1,12 @@
 {
   "directed": true,
   "top": "la",
-  "nvertices": 500,
-  "avgdegree": 5,
-  "nepochs": 10,
-  "batchsz": 3,
+  "nvertices": 75,
+  "avgdegree": 7,
+  "nepochs": 5,
+  "batchsz": 4,
   "nrealizations": 3,
-  "walklen": 15,
+  "walklen": 9,
   "seed": 0,
   "outdir": "/tmp/out/"
 }

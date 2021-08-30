@@ -75,7 +75,18 @@ def remove_arc_conn(g):
 def run_experiment(gorig, nsteps, batchsz, walklen):
     """Removal of arcs and evaluation of walks."""
     g = gorig.copy()
-    countsall = np.zeros((nsteps, g.vcount()), dtype=int)
+    visits = np.zeros((nsteps+1, g.vcount()), dtype=int)
+    avgdegrees = np.zeros((nsteps+1, g.vcount()), dtype=int)
+
+    # Walk on the original graph
+    adj = np.array(g.get_adjacency().data)
+    trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
+    startnode = np.random.randint(0, g.vcount())
+    walk = randomwalk(walklen, startnode, trans)
+    vs, cs = np.unique(walk, return_counts=True)
+    for v, c in zip(vs, cs): visits[0, v] = c
+    avgdegrees[0, :] = g.degree()
+
     for i in range(nsteps):
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
@@ -88,10 +99,10 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
         #TODO: perform multiple walks for each intermediate graph?
         walk = randomwalk(walklen, startnode, trans)
         vs, cs = np.unique(walk, return_counts=True)
-        
         for v, c in zip(vs, cs):
-            countsall[i, v] = c
-    return (countsall, True)
+            visits[i+1, v] = c
+        avgdegrees[i+1, :] = g.degree()
+    return (visits, avgdegrees, True)
 
 ##########################################################
 def plot_graph(g, top, outdir):
@@ -119,6 +130,20 @@ def initial_check(nepochs, batchsz, g):
         raise Exception('Initial graph is not strongly connected.')
 
 ##########################################################
+def plot_visits_degree(visits, degrees, label, outdir):
+    """Plot the number of visits by the degree for each vertex.
+    Each dot represent an vertex"""
+    info(inspect.stack()[0][3] + '()')
+
+    W = 640; H = 480
+    fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
+    ax.scatter(degrees, visits)
+    ax.set_xlabel('Vertex degree')
+    ax.set_ylabel('Number of visits')
+    outpath = pjoin(outdir, '{:03d}.png'.format(label))
+    plt.savefig(outpath)
+
+##########################################################
 def main(cfg):
     np.random.seed(cfg.seed); random.seed(cfg.seed)
     g = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree,
@@ -126,12 +151,20 @@ def main(cfg):
     plot_graph(g, cfg.top, cfg.outdir)
     initial_check(cfg.nepochs, cfg.batchsz, g)
 
-    countsall = - np.ones((cfg.nrealizations, cfg.nepochs, g.vcount()), dtype=int)
+    retshp = (cfg.nrealizations, cfg.nepochs + 1, g.vcount())
+    visits = - np.ones(retshp, dtype=int)
+    degrees = - np.ones(retshp, dtype=int)
     for r in range(cfg.nrealizations):
-        ret, succ = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen)
-        if not succ: info('DECIDE WHAT TO DO')
-        else: countsall[r, :, :] = ret
-    
+        v, k, succ = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen)
+        
+        if not succ:
+            info('DECIDE WHAT TO DO')
+        else:
+            visits[r, :, :] = v
+            degrees[r, :] = k
+
+    for r in range(cfg.nrealizations):
+        plot_visits_degree(visits[r, :, :], degrees[r, :, :], r, cfg.outdir)
     return
 
     # comeca com rede nao dirigida
