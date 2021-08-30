@@ -1,0 +1,12 @@
+{
+  "directed": true,
+  "top": "la",
+  "nvertices": 500,
+  "avgdegree": 5,
+  "nepochs": 10,
+  "batchsz": 3,
+  "nrealizations": 3,
+  "walklen": 15,
+  "seed": 0,
+  "outdir": "/tmp/out/"
+}

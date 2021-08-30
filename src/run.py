@@ -7,6 +7,7 @@ import time, datetime
 import os, random
 from os.path import join as pjoin
 import inspect
+from types import SimpleNamespace
 
 import sys
 import numpy as np
@@ -14,9 +15,10 @@ import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import igraph
 from myutils import info, create_readme
+import json
 
 ##########################################################
-def generate_data(top, n, k):
+def generate_data(top, n, k, directed):
     """Generate data"""
     info(inspect.stack()[0][3] + '()')
     m = round(k / 2)
@@ -39,7 +41,7 @@ def generate_data(top, n, k):
         radius = 3 # radius = get_rgg_params(n, k)
         g = igraph.Graph.GRG(n, radius)
         igraph.plot(g, outpath)
-    g.to_directed()
+    if directed: g.to_directed()
     return g
 
 ##########################################################
@@ -77,7 +79,7 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     for i in range(nsteps):
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
-            if not succ: return [], False
+            if not succ: return (g, False)
             else: g = newg
         adj = np.array(g.get_adjacency().data)
         trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
@@ -89,15 +91,22 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
         
         for v, c in zip(vs, cs):
             countsall[i, v] = c
-    return countsall, True
+    return (countsall, True)
 
 ##########################################################
 def plot_graph(g, top, outdir):
     """Plot graph"""
-    if top == 'la':
-        igraph.plot(g, pjoin(outdir, top + '.png'), layout='grid')
+    if top in ['gr', 'wx']:
+        aux = np.array([ [g.vs['x'][i], g.vs['y'][i]] for i in range(g.vcount()) ])
     else:
-        igraph.plot(g, pjoin(outdir, top + '.png'), layout='fr')
+        if top in ['la', 'ws']:
+            layoutmodel = 'grid'
+        else:
+            layoutmodel = 'random'
+        aux = np.array(g.layout(layoutmodel).coords)
+    coords = -1 + 2*(aux - np.min(aux, 0))/(np.max(aux, 0)-np.min(aux, 0)) # minmax
+
+    igraph.plot(g, pjoin(outdir, top + '.png'), layout=coords.tolist())
 
 ##########################################################
 def initial_check(nepochs, batchsz, g):
@@ -110,50 +119,20 @@ def initial_check(nepochs, batchsz, g):
         raise Exception('Initial graph is not strongly connected.')
 
 ##########################################################
-def main(seed, outdir):
-    """Short description"""
-    info(inspect.stack()[0][3] + '()')
+def main(cfg):
+    np.random.seed(cfg.seed); random.seed(cfg.seed)
+    g = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree,
+            directed=cfg.directed)
+    plot_graph(g, cfg.top, cfg.outdir)
+    initial_check(cfg.nepochs, cfg.batchsz, g)
 
-    np.random.seed(seed); random.seed(seed)
-
-    n = 500
-    k = 5 # nvertcies ~= (k * n) / 2
-    nepochs = 10
-    batchsz = 3
-    nrealizations = 3
-    top = 'la'
-    walklen = 100
-
-    outpath = pjoin(outdir, 'la.pdf')
-
-    g = generate_data(top, n, k)
-    plot_graph(g, top, outdir)
-    initial_check(nepochs, batchsz, g)
-
-    countsall = - np.ones((nrealizations, nepochs, g.vcount()), dtype=int)
-    for r in range(nrealizations):
-        ret, succ = run_experiment(g, nepochs, batchsz, walklen)
+    countsall = - np.ones((cfg.nrealizations, cfg.nepochs, g.vcount()), dtype=int)
+    for r in range(cfg.nrealizations):
+        ret, succ = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen)
         if not succ: info('DECIDE WHAT TO DO')
         else: countsall[r, :, :] = ret
     
-    breakpoint()
-    
     return
-
-    # g = g.clusters().giant()
-
-    if topologymodel in ['gr', 'wx']:
-        aux = np.array([ [g.vs['x'][i], g.vs['y'][i]] for i in range(g.vcount()) ])
-    else:
-        if topologymodel in ['la', 'ws']:
-            layoutmodel = 'grid'
-        else:
-            layoutmodel = 'random'
-        aux = np.array(g.layout(layoutmodel).coords)
-
-    coords = -1 + 2*(aux - np.min(aux, 0))/(np.max(aux, 0)-np.min(aux, 0)) # minmax
-
-    info('For Aiur!')
 
     # comeca com rede nao dirigida
     # sorteia  uma ligacao e apga uma aresta dirigida (uma das duas)
@@ -168,14 +147,14 @@ if __name__ == "__main__":
     info(datetime.date.today())
     t0 = time.time()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--seed', default=0, type=int, help='Random seed')
-    parser.add_argument('--outdir', default='/tmp/out/', help='Output directory')
+    parser.add_argument('config', help='config in json format')
     args = parser.parse_args()
 
-    os.makedirs(args.outdir, exist_ok=True)
-    readmepath = create_readme(sys.argv, args.outdir)
-
-    main(args.seed, args.outdir)
+    cfg = json.load(open(args.config),
+            object_hook=lambda d: SimpleNamespace(**d))
+    os.makedirs(cfg.outdir, exist_ok=True)
+    readmepath = create_readme(sys.argv, cfg.outdir)
+    main(cfg)
 
     info('Elapsed time:{:.02f}s'.format(time.time()-t0))
-    info('Output generated in {}'.format(args.outdir))
+    info('Output generated in {}'.format(cfg.outdir))
