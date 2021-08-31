@@ -1,0 +1,11 @@
+{
+  "top": "er",
+  "nvertices": 2000,
+  "avgdegree": 7,
+  "nepochs": 50,
+  "batchsz": 60,
+  "nrealizations": 1,
+  "walklen": 20000,
+  "seed": 0,
+  "outdir": "/var/tmp/ekt248fg6h4jh8m90d8bn6d/20210830-set02/"
+}

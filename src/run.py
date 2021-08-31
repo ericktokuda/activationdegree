@@ -10,6 +10,7 @@ import inspect
 from types import SimpleNamespace
 
 import sys
+import shutil
 import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ from myutils import info, create_readme
 import json
 
 ##########################################################
-def generate_data(top, n, k, directed):
+def generate_data(top, n, k):
     """Generate data"""
     info(inspect.stack()[0][3] + '()')
     m = round(k / 2)
@@ -37,7 +38,6 @@ def generate_data(top, n, k, directed):
     elif top == 'gr':
         radius = 3 # radius = get_rgg_params(n, k)
         g = igraph.Graph.GRG(n, radius)
-    if directed: g.to_directed()
     return g
 
 ##########################################################
@@ -71,8 +71,10 @@ def remove_arc_conn(g):
 def run_experiment(gorig, nsteps, batchsz, walklen):
     """Removal of arcs and evaluation of walks."""
     g = gorig.copy()
-    visits = np.zeros((nsteps+1, g.vcount()), dtype=int)
-    avgdegrees = np.zeros((nsteps+1, g.vcount()), dtype=int)
+    shp = (nsteps+1, g.vcount())
+    err = - np.ones(shp, dtype=int)
+    visits = np.zeros(shp, dtype=int)
+    avgdegrees = np.zeros(shp, dtype=int)
 
     # Walk on the original graph
     adj = np.array(g.get_adjacency().data)
@@ -86,19 +88,18 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     for i in range(nsteps):
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
-            if not succ: return (g, False)
+            if not succ: return err, err
             else: g = newg
         adj = np.array(g.get_adjacency().data)
         trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
 
         startnode = np.random.randint(0, g.vcount())
-        #TODO: perform multiple walks for each intermediate graph?
         walk = randomwalk(walklen, startnode, trans)
         vs, cs = np.unique(walk, return_counts=True)
         for v, c in zip(vs, cs):
             visits[i+1, v] = c
         avgdegrees[i+1, :] = g.degree()
-    return (visits, avgdegrees, True)
+    return visits, avgdegrees
 
 ##########################################################
 def plot_graph(g, top, outdir):
@@ -126,50 +127,48 @@ def initial_check(nepochs, batchsz, g):
         raise Exception('Initial graph is not strongly connected.')
 
 ##########################################################
-def plot_visits_degree(visits, degrees, label, outdir):
+def plot_visits_degree(visits, degrees, outpath):
     """Plot the number of visits by the degree for each vertex.
     Each dot represent an vertex"""
     info(inspect.stack()[0][3] + '()')
-
     W = 640; H = 480
     fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
     ax.scatter(degrees, visits)
     ax.set_xlabel('Vertex degree')
     ax.set_ylabel('Number of visits')
-    outpath = pjoin(outdir, '{:03d}.png'.format(label))
     plt.savefig(outpath)
+    plt.close()
 
 ##########################################################
 def main(cfg):
     np.random.seed(cfg.seed); random.seed(cfg.seed)
-    g = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree,
-            directed=cfg.directed)
-    plot_graph(g, cfg.top, cfg.outdir)
-    initial_check(cfg.nepochs, cfg.batchsz, g)
+    gund = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree)
+    gdir = gund.copy(); gdir.to_directed()
 
-    retshp = (cfg.nrealizations, cfg.nepochs + 1, g.vcount())
+    plot_graph(gund, cfg.top, cfg.outdir)
+    initial_check(cfg.nepochs, cfg.batchsz, gund)
+
+    retshp = (cfg.nrealizations, 2, cfg.nepochs + 1, gund.vcount())
     visits = - np.ones(retshp, dtype=int)
     degrees = - np.ones(retshp, dtype=int)
     for r in range(cfg.nrealizations):
-        v, k, succ = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen)
-        
-        if not succ:
-            info('DECIDE WHAT TO DO')
-        else:
-            visits[r, :, :] = v
-            degrees[r, :] = k
+        vu, ku = run_experiment(gund, cfg.nepochs, cfg.batchsz, cfg.walklen)
+        vd, kd = run_experiment(gdir, cfg.nepochs, cfg.batchsz, cfg.walklen)
+        visits[r, 0, :, :] = vu
+        visits[r, 1, :, :] = vd
+        degrees[r, 0, :] = ku
+        degrees[r, 1, :] = kd
 
-    for r in range(cfg.nrealizations):
-        plot_visits_degree(visits[r, :, :], degrees[r, :, :], r, cfg.outdir)
-    return
+    np.save(pjoin(cfg.outdir, 'visits.npy'), visits)
+    np.save(pjoin(cfg.outdir, 'degrees.npy'), degrees)
 
-    # comeca com rede nao dirigida
-    # sorteia  uma ligacao e apga uma aresta dirigida (uma das duas)
-    # manter a componente fortemente conexacorrelacao com grau de ativacao
-    # ER WS BA spatial
-    # 2000 nodes
-    # <k> = 5
-
+    for i in range(visits.shape[0]): # realization
+        for j in range(visits.shape[1]): # (un)directed
+            dl = 'und' if j == 0 else 'dir'
+            for k in range(visits.shape[2]): # epoch
+                f = '{}_{:04d}_{:02d}.png'.format(dl, k, i)
+                outpath = pjoin(cfg.outdir, f)
+                plot_visits_degree(visits[i, j, k, :], degrees[i, j, k, :], outpath)
 
 ##########################################################
 if __name__ == "__main__":
@@ -183,6 +182,7 @@ if __name__ == "__main__":
             object_hook=lambda d: SimpleNamespace(**d))
     os.makedirs(cfg.outdir, exist_ok=True)
     readmepath = create_readme(sys.argv, cfg.outdir)
+    shutil.copy(args.config, pjoin(cfg.outdir, 'config.json'))
     main(cfg)
 
     info('Elapsed time:{:.02f}s'.format(time.time()-t0))
