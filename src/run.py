@@ -71,7 +71,7 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     """Removal of arcs and evaluation of walks."""
     info(inspect.stack()[0][3] + '()')
     # trimsz = 0
-    trimsz = int(walklen * trimrelsz) # Discard initial trimsz
+    trimsz = int(walklen * 0.2) # Discard initial trimsz
     g = gorig.copy()
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
