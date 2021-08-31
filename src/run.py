@@ -56,7 +56,6 @@ def randomwalk(l, startnode, trans):
 ##########################################################
 def remove_arc_conn(g):
     """Remove and arc while keep the graph strongly connected"""
-    # info(inspect.stack()[0][3] + '()')
     edgeids = np.arange(0, g.ecount())
     np.random.shuffle(edgeids)
 
@@ -70,6 +69,9 @@ def remove_arc_conn(g):
 ##########################################################
 def run_experiment(gorig, nsteps, batchsz, walklen):
     """Removal of arcs and evaluation of walks."""
+    info(inspect.stack()[0][3] + '()')
+    # trimsz = 0
+    trimsz = int(walklen * trimrelsz) # Discard initial trimsz
     g = gorig.copy()
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
@@ -81,11 +83,12 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
     startnode = np.random.randint(0, g.vcount())
     walk = randomwalk(walklen, startnode, trans)
-    vs, cs = np.unique(walk, return_counts=True)
+    vs, cs = np.unique(walk[trimsz:], return_counts=True)
     for v, c in zip(vs, cs): visits[0, v] = c
     avgdegrees[0, :] = g.degree()
 
     for i in range(nsteps):
+        info('Step {}'.format(i))
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
             if not succ:
@@ -97,7 +100,7 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
 
         startnode = np.random.randint(0, g.vcount())
         walk = randomwalk(walklen, startnode, trans)
-        vs, cs = np.unique(walk, return_counts=True)
+        vs, cs = np.unique(walk[trimsz:], return_counts=True)
         for v, c in zip(vs, cs):
             visits[i+1, v] = c
         avgdegrees[i+1, :] = g.degree()
