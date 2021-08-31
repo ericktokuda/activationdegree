@@ -88,7 +88,9 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     for i in range(nsteps):
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
-            if not succ: return err, err
+            if not succ:
+                info('Could not remove arc in step {}'.format(i))
+                return err, err
             else: g = newg
         adj = np.array(g.get_adjacency().data)
         trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
@@ -130,7 +132,7 @@ def initial_check(nepochs, batchsz, g):
 def plot_visits_degree(visits, degrees, outpath):
     """Plot the number of visits by the degree for each vertex.
     Each dot represent an vertex"""
-    info(inspect.stack()[0][3] + '()')
+    # info(inspect.stack()[0][3] + '()')
     W = 640; H = 480
     fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
     ax.scatter(degrees, visits)
@@ -152,6 +154,7 @@ def main(cfg):
     visits = - np.ones(retshp, dtype=int)
     degrees = - np.ones(retshp, dtype=int)
     for r in range(cfg.nrealizations):
+        info('Realization {}'.format(r))
         vu, ku = run_experiment(gund, cfg.nepochs, cfg.batchsz, cfg.walklen)
         vd, kd = run_experiment(gdir, cfg.nepochs, cfg.batchsz, cfg.walklen)
         visits[r, 0, :, :] = vu
