@@ -119,7 +119,7 @@ def plot_graph(g, top, outdir):
         aux = np.array(g.layout(layoutmodel).coords)
     coords = -1 + 2*(aux - np.min(aux, 0))/(np.max(aux, 0)-np.min(aux, 0)) # minmax
 
-    igraph.plot(g, pjoin(outdir, top + '.png'), layout=coords.tolist())
+    igraph.plot(g, pjoin(outdir, 'graph_und.png'), layout=coords.tolist())
 
 ##########################################################
 def initial_check(nepochs, batchsz, g):
@@ -160,9 +160,9 @@ def main(cfg):
             raise Exception('Could not find strongly connected graph')
         tries += 1
 
+    plot_graph(g, cfg.top, cfg.outdir)
     g.to_directed()
 
-    plot_graph(g, cfg.top, cfg.outdir)
     initial_check(cfg.nepochs, cfg.batchsz, g)
 
     retshp = (cfg.nrealizations, cfg.nepochs + 1, g.vcount())
