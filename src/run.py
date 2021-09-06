@@ -15,6 +15,7 @@ import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import igraph
+from scipy.stats import pearsonr
 from myutils import info, create_readme
 import json
 
@@ -44,13 +45,11 @@ def generate_data(top, n, k):
 def randomwalk(l, startnode, trans):
     """Random walk assuming a transition matrix with elements such that
     trans[i, j] represents the probability of i going j."""
-    # info(inspect.stack()[0][3] + '()')
     n = trans.shape[1]
-    walk = [startnode]
+    walk = - np.ones(l+1, dtype=int)
+    walk[0] = startnode
     for i in range(l):
-        pos = walk[-1]
-        newpos = np.random.choice(range(n), p=trans[pos, :])
-        walk.append(newpos)
+        walk[i+1] = np.random.choice(range(n), p=trans[walk[i], :])
     return walk
 
 ##########################################################
@@ -91,10 +90,11 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
         info('Step {}'.format(i))
         for _ in range(batchsz):
             newg, succ = remove_arc_conn(g)
-            if not succ:
+            if succ:
+                g = newg
+            else:
                 info('Could not remove arc in step {}'.format(i))
                 return err, err
-            else: g = newg
         adj = np.array(g.get_adjacency().data)
         trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
 
@@ -138,7 +138,9 @@ def plot_visits_degree(visits, degrees, outpath):
     # info(inspect.stack()[0][3] + '()')
     W = 640; H = 480
     fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
+    p = pearsonr(degrees, visits)[0]
     ax.scatter(degrees, visits)
+    ax.set_title('Pearson {:.02f}'.format(p))
     ax.set_xlabel('Vertex degree')
     ax.set_ylabel('Number of visits')
     plt.savefig(outpath)
@@ -147,34 +149,40 @@ def plot_visits_degree(visits, degrees, outpath):
 ##########################################################
 def main(cfg):
     np.random.seed(cfg.seed); random.seed(cfg.seed)
-    gund = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree)
-    gdir = gund.copy(); gdir.to_directed()
+    stronglyconn = False
+    maxtries = 20
+    tries = 0
 
-    plot_graph(gund, cfg.top, cfg.outdir)
-    initial_check(cfg.nepochs, cfg.batchsz, gund)
+    while not stronglyconn:
+        g = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree)
+        stronglyconn = g.is_connected(mode='strong')
+        if tries > maxtries:
+            raise Exception('Could not find strongly connected graph')
+        tries += 1
 
-    retshp = (cfg.nrealizations, 2, cfg.nepochs + 1, gund.vcount())
+    g.to_directed()
+
+    plot_graph(g, cfg.top, cfg.outdir)
+    initial_check(cfg.nepochs, cfg.batchsz, g)
+
+    retshp = (cfg.nrealizations, cfg.nepochs + 1, g.vcount())
     visits = - np.ones(retshp, dtype=int)
     degrees = - np.ones(retshp, dtype=int)
+
     for r in range(cfg.nrealizations):
         info('Realization {}'.format(r))
-        vu, ku = run_experiment(gund, cfg.nepochs, cfg.batchsz, cfg.walklen)
-        vd, kd = run_experiment(gdir, cfg.nepochs, cfg.batchsz, cfg.walklen)
-        visits[r, 0, :, :] = vu
-        visits[r, 1, :, :] = vd
-        degrees[r, 0, :] = ku
-        degrees[r, 1, :] = kd
+        vd, kd = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen)
+        visits[r, :, :] = vd
+        degrees[r, :] = kd
 
     np.save(pjoin(cfg.outdir, 'visits.npy'), visits)
     np.save(pjoin(cfg.outdir, 'degrees.npy'), degrees)
 
     for i in range(visits.shape[0]): # realization
-        for j in range(visits.shape[1]): # (un)directed
-            dl = 'und' if j == 0 else 'dir'
-            for k in range(visits.shape[2]): # epoch
-                f = '{}_{:04d}_{:02d}.png'.format(dl, k, i)
-                outpath = pjoin(cfg.outdir, f)
-                plot_visits_degree(visits[i, j, k, :], degrees[i, j, k, :], outpath)
+        for k in range(visits.shape[1]): # epoch
+            f = '{:02d}_{:04d}.png'.format(i, k)
+            outpath = pjoin(cfg.outdir, f)
+            plot_visits_degree(visits[i, k, :], degrees[i, k, :], outpath)
 
 ##########################################################
 if __name__ == "__main__":

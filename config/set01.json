@@ -1,12 +1,11 @@
 {
-  "directed": false,
   "top": "er",
-  "nvertices": 2000,
-  "avgdegree": 10,
-  "nepochs": 15,
-  "batchsz": 20,
-  "nrealizations": 10,
-  "walklen": 100,
-  "seed": 0,
+  "nvertices": 200,
+  "avgdegree": 7,
+  "nepochs": 2,
+  "batchsz": 50,
+  "nrealizations": 1,
+  "walklen": 500000,
+  "seed": 1,
   "outdir": "/tmp/out/"
 }
