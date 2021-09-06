@@ -159,6 +159,7 @@ def main(cfg):
         if tries > maxtries:
             raise Exception('Could not find strongly connected graph')
         tries += 1
+    info('{} tries to generate a strongly conn. graph'.format(tries))
 
     plot_graph(g, cfg.top, cfg.outdir)
     g.to_directed()
