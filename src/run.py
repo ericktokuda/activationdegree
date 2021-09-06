@@ -84,7 +84,7 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
     walk = randomwalk(walklen, startnode, trans)
     vs, cs = np.unique(walk[trimsz:], return_counts=True)
     for v, c in zip(vs, cs): visits[0, v] = c
-    avgdegrees[0, :] = g.degree()
+    avgdegrees[0, :] = g.degree(mode='out')
 
     for i in range(nsteps):
         info('Step {}'.format(i))
@@ -103,7 +103,7 @@ def run_experiment(gorig, nsteps, batchsz, walklen):
         vs, cs = np.unique(walk[trimsz:], return_counts=True)
         for v, c in zip(vs, cs):
             visits[i+1, v] = c
-        avgdegrees[i+1, :] = g.degree()
+        avgdegrees[i+1, :] = g.degree(mode='out')
     return visits, avgdegrees
 
 ##########################################################
