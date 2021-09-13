@@ -39,6 +39,15 @@ def generate_data(top, n, k):
     elif top == 'gr':
         radius = 3 # radius = get_rgg_params(n, k)
         g = igraph.Graph.GRG(n, radius)
+    elif top == 'sb':
+        if k == 5: x = 4.5
+        elif k == 6: x = 8.3
+        elif k == 7: x = 12.5
+        elif k == 8: x = 16.2
+        pref = (np.array([[14, 1], [1, x]]) / n).tolist()
+        n2 = n // 2
+        szs = [ n2, n - n2 ]
+        g = igraph.Graph.SBM(n, pref, szs, directed=False, loops=False)
     return g
 
 ##########################################################
@@ -115,7 +124,7 @@ def plot_graph(g, top, outdir):
         if top in ['la', 'ws']:
             layoutmodel = 'grid'
         else:
-            layoutmodel = 'random'
+            layoutmodel = 'fr'
         aux = np.array(g.layout(layoutmodel).coords)
     coords = -1 + 2*(aux - np.min(aux, 0))/(np.max(aux, 0)-np.min(aux, 0)) # minmax
 
