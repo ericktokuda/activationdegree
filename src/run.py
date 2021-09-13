@@ -149,7 +149,7 @@ def plot_visits_degree(visits, degrees, outpath):
     fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
     p = pearsonr(degrees, visits)[0]
     ax.scatter(degrees, visits)
-    ax.set_title('Pearson {:.02f}'.format(p))
+    ax.set_title('Pearson {:.03f}'.format(p))
     ax.set_xlabel('Vertex degree')
     ax.set_ylabel('Number of visits')
     plt.savefig(outpath)
