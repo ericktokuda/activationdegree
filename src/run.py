@@ -159,7 +159,7 @@ def plot_visits_degree(visits, degrees, outpath):
 def main(cfg):
     np.random.seed(cfg.seed); random.seed(cfg.seed)
     stronglyconn = False
-    maxtries = 20
+    maxtries = 100
     tries = 0
 
     while not stronglyconn:
