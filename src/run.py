@@ -18,10 +18,11 @@ import igraph
 from scipy.stats import pearsonr
 from myutils import info, create_readme
 import json
+import scipy.sparse as spa
 
 
 ##########################################################
-def int_and_fire(gin, initial_charges, threshold, tmax):
+def int_and_fire(gin, threshold, tmax, trimsz):
     """Simplified integrate-and-fire.
     Adapted from @chcomin. If you use this code, please cite:
     'Structure and dynamics: the transition from nonequilibrium to equilibrium in
@@ -30,10 +31,7 @@ def int_and_fire(gin, initial_charges, threshold, tmax):
 
     g = gin.copy()
     n = g.vcount()
-
-    num_spikes = np.zeros(tmax)
-    energy_sum = np.zeros(tmax)
-    fires = np.zeros(n, dtype=int)
+    initial_charges = np.random.randint(int(threshold*1.3), size=g.vcount())
 
     edges = np.array(g.get_edgelist())
     par, child = zip(*edges)
@@ -42,17 +40,19 @@ def int_and_fire(gin, initial_charges, threshold, tmax):
 
     acc = initial_charges.copy()
 
-    for i in range(tmax):
+    for i in range(trimsz):
         is_spiking = (acc >= threshold)
-        fires += is_spiking
-
-        num_spikes[i] = np.sum(is_spiking)
-        energy_sum[i] = np.sum(acc)
-
         charge_gain = A.dot(is_spiking)
         acc = acc - acc*is_spiking + charge_gain
 
-    return num_spikes, energy_sum, fires
+    fires = np.zeros(n, dtype=int)
+    for i in range(tmax-trimsz):
+        is_spiking = (acc >= threshold)
+        fires += is_spiking
+        charge_gain = A.dot(is_spiking)
+        acc = acc - acc*is_spiking + charge_gain
+
+    return fires
 
 ##########################################################
 def generate_data(top, n, k):
@@ -124,28 +124,35 @@ def evaluate_walk(idx, g, walklen, trimsz):
     return visits
 
 ##########################################################
-def run_experiment(gorig, nsteps, batchsz, walklen):
+def run_experiment(gorig, nsteps, batchsz, walklen, ifirethresh, ifireepochs, trimrel):
     """Remove @batchsz arcs, @nsteps times and evaluate a walk of len
     @walklen and the integrate-and-fire dynamics"""
-    info(inspect.stack()[0][3] + '()')
-    trimsz = int(walklen * 0.2) # Discard initial trimsz
+    # info(inspect.stack()[0][3] + '()')
     g = gorig.copy()
+    wtrim = int(walklen * trimrel)
+    ftrim = int(ifireepochs * trimrel)
+
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
-    wvisits = np.zeros(shp, dtype=int)
+    wvisits = np.zeros(shp, dtype=float)
+    # wvisits = np.random.randint(0, 100, size=shp)
+    nfires = np.zeros(shp, dtype=int)
     avgdegrees = np.zeros(shp, dtype=int)
 
-    wvisits[0, :] = evaluate_walk(0, g, walklen, trimsz)
     avgdegrees[0, :] = g.degree(mode='out')
+    wvisits[0, :] = evaluate_walk(0, g, walklen, wtrim)
+    nfires[0, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim)
 
     for i in range(nsteps):
         info('Step {}'.format(i))
         for _ in range(batchsz):
             try: g = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
-        wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, trimsz)
         avgdegrees[i+1, :] = g.degree(mode='out')
-    return visits, avgdegrees
+        # wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, trimsz) / g.vcount()
+        wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, wtrim)
+        nfires[i+1, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim)
+    return avgdegrees, wvisits, nfires
 
 ##########################################################
 def plot_graph(g, top, outdir):
@@ -188,6 +195,28 @@ def plot_visits_degree(visits, degrees, outpath):
     plt.close()
 
 ##########################################################
+def plot_correlation_degree(meas, label, degrees, outpath):
+    """Plot the number of visits by the degree for each vertex.
+    Each dot represent an vertex"""
+    # info(inspect.stack()[0][3] + '()')
+    W = 640; H = 480
+    fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
+    p = pearsonr(degrees, meas)[0]
+    ax.scatter(degrees, meas)
+    ax.set_title('Pearson {:.03f}'.format(p))
+    ax.set_xlabel('Vertex degree')
+    ax.set_ylabel(label)
+    plt.savefig(outpath)
+    plt.close()
+
+##########################################################
+def plot_correlations(wvisits, nfires, degrees, outdir, filesuff):
+    woutpath = pjoin(outdir, 'w_' + filesuff + '.png')
+    foutpath = pjoin(outdir, 'f_' + filesuff + '.png')
+    # plot_correlation_degree(wvisits, 'Walk visits', degrees, woutpath)
+    plot_correlation_degree(nfires, 'Number of fires', degrees, foutpath)
+
+##########################################################
 def main(cfg):
     np.random.seed(cfg.seed); random.seed(cfg.seed)
     stronglyconn = False
@@ -208,23 +237,27 @@ def main(cfg):
     initial_check(cfg.nepochs, cfg.batchsz, g)
 
     retshp = (cfg.nrealizations, cfg.nepochs + 1, g.vcount())
-    visits = - np.ones(retshp, dtype=int)
+    wvisits = - np.ones(retshp, dtype=int)
+    nfires = - np.ones(retshp, dtype=int)
     degrees = - np.ones(retshp, dtype=int)
 
     for r in range(cfg.nrealizations):
         info('Realization {}'.format(r))
-        vd, kd = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen)
-        visits[r, :, :] = vd
+        kd, wv, nf = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen,
+                                cfg.ifirethresh, cfg.ifireepochs, cfg.trimrel)
+        wvisits[r, :, :] = wv
+        nfires[r, :, :] = nf
         degrees[r, :] = kd
 
-    np.save(pjoin(cfg.outdir, 'visits.npy'), visits)
     np.save(pjoin(cfg.outdir, 'degrees.npy'), degrees)
+    np.save(pjoin(cfg.outdir, 'wvisits.npy'), wvisits)
+    np.save(pjoin(cfg.outdir, 'nfires.npy'), nfires)
 
-    for i in range(visits.shape[0]): # realization
-        for k in range(visits.shape[1]): # epoch
-            f = '{:02d}_{:04d}.png'.format(i, k)
-            outpath = pjoin(cfg.outdir, f)
-            plot_visits_degree(visits[i, k, :], degrees[i, k, :], outpath)
+    for i in range(wvisits.shape[0]): # realization
+        for k in range(wvisits.shape[1]): # epoch
+            filesuff = '{:02d}_{:04d}'.format(i, k)
+            plot_correlations(wvisits[i, k, :], nfires[i, k, :], degrees[i, k, :],
+                              cfg.outdir, filesuff)
 
 ##########################################################
 if __name__ == "__main__":
