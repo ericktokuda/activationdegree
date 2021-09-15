@@ -19,6 +19,41 @@ from scipy.stats import pearsonr
 from myutils import info, create_readme
 import json
 
+
+##########################################################
+def int_and_fire(gin, initial_charges, threshold, tmax):
+    """Simplified integrate-and-fire.
+    Adapted from @chcomin. If you use this code, please cite:
+    'Structure and dynamics: the transition from nonequilibrium to equilibrium in
+    integrate-and-fire dynamics', Comin et al., 2012
+    """
+
+    g = gin.copy()
+    n = g.vcount()
+
+    num_spikes = np.zeros(tmax)
+    energy_sum = np.zeros(tmax)
+    fires = np.zeros(n, dtype=int)
+
+    edges = np.array(g.get_edgelist())
+    par, child = zip(*edges)
+    h = np.ones(edges.shape[0])
+    A = spa.csr_matrix((h, (child, par)),shape=(n, n))
+
+    acc = initial_charges.copy()
+
+    for i in range(tmax):
+        is_spiking = (acc >= threshold)
+        fires += is_spiking
+
+        num_spikes[i] = np.sum(is_spiking)
+        energy_sum[i] = np.sum(acc)
+
+        charge_gain = A.dot(is_spiking)
+        acc = acc - acc*is_spiking + charge_gain
+
+    return num_spikes, energy_sum, fires
+
 ##########################################################
 def generate_data(top, n, k):
     """Generate data"""
@@ -71,47 +106,44 @@ def remove_arc_conn(g):
         newg = g.copy()
         newg.delete_edges([g.es[eid]])
         if newg.is_connected(mode='strong'):
-            return newg, True
-    return g, False
+            return newg
+    raise Exception()
 
 ##########################################################
-def run_experiment(gorig, nsteps, batchsz, walklen):
-    """Removal of arcs and evaluation of walks."""
-    info(inspect.stack()[0][3] + '()')
-    # trimsz = 0
-    trimsz = int(walklen * 0.2) # Discard initial trimsz
-    g = gorig.copy()
-    shp = (nsteps+1, g.vcount())
-    err = - np.ones(shp, dtype=int)
-    visits = np.zeros(shp, dtype=int)
-    avgdegrees = np.zeros(shp, dtype=int)
-
-    # Walk on the original graph
+def evaluate_walk(idx, g, walklen, trimsz):
+    """Walk with length @walklen in graph @g and update the @visits and @avgdgrees,
+    in the positions given by @idx. The first @trimsz of the walk is disregarded."""
     adj = np.array(g.get_adjacency().data)
     trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
     startnode = np.random.randint(0, g.vcount())
     walk = randomwalk(walklen, startnode, trans)
     vs, cs = np.unique(walk[trimsz:], return_counts=True)
-    for v, c in zip(vs, cs): visits[0, v] = c
+    visits = np.zeros(g.vcount(), dtype=int)
+    for v, c in zip(vs, cs):
+        visits[v] = c
+    return visits
+
+##########################################################
+def run_experiment(gorig, nsteps, batchsz, walklen):
+    """Remove @batchsz arcs, @nsteps times and evaluate a walk of len
+    @walklen and the integrate-and-fire dynamics"""
+    info(inspect.stack()[0][3] + '()')
+    trimsz = int(walklen * 0.2) # Discard initial trimsz
+    g = gorig.copy()
+    shp = (nsteps+1, g.vcount())
+    err = - np.ones(shp, dtype=int)
+    wvisits = np.zeros(shp, dtype=int)
+    avgdegrees = np.zeros(shp, dtype=int)
+
+    wvisits[0, :] = evaluate_walk(0, g, walklen, trimsz)
     avgdegrees[0, :] = g.degree(mode='out')
 
     for i in range(nsteps):
         info('Step {}'.format(i))
         for _ in range(batchsz):
-            newg, succ = remove_arc_conn(g)
-            if succ:
-                g = newg
-            else:
-                info('Could not remove arc in step {}'.format(i))
-                return err, err
-        adj = np.array(g.get_adjacency().data)
-        trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
-
-        startnode = np.random.randint(0, g.vcount())
-        walk = randomwalk(walklen, startnode, trans)
-        vs, cs = np.unique(walk[trimsz:], return_counts=True)
-        for v, c in zip(vs, cs):
-            visits[i+1, v] = c
+            try: g = remove_arc_conn(g)
+            except: raise Exception('Could not remove arc in step {}'.format(i))
+        wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, trimsz)
         avgdegrees[i+1, :] = g.degree(mode='out')
     return visits, avgdegrees
 
@@ -168,7 +200,7 @@ def main(cfg):
         if tries > maxtries:
             raise Exception('Could not find strongly connected graph')
         tries += 1
-    info('{} tries to generate a strongly conn. graph'.format(tries))
+    info('{} tries to generate a strongly connected graph'.format(tries))
 
     plot_graph(g, cfg.top, cfg.outdir)
     g.to_directed()
