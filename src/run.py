@@ -19,7 +19,7 @@ from scipy.stats import pearsonr
 from myutils import info, create_readme
 import json
 import scipy.sparse as spa
-
+from multiprocessing import Pool
 
 ##########################################################
 def int_and_fire(gin, threshold, tmax, trimsz):
@@ -124,10 +124,34 @@ def evaluate_walk(idx, g, walklen, trimsz):
     return visits
 
 ##########################################################
-def run_experiment(gorig, nsteps, batchsz, walklen, ifirethresh, ifireepochs, trimrel):
+def run_experiment_lst(params):
+    return run_experiment(*params)
+
+##########################################################
+def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs,
+                   trimrel, outrootdir, seed):
     """Remove @batchsz arcs, @nsteps times and evaluate a walk of len
     @walklen and the integrate-and-fire dynamics"""
     # info(inspect.stack()[0][3] + '()')
+    np.random.seed(seed); random.seed(seed)
+
+    outdir = pjoin(outrootdir, '{:02d}'.format(seed))
+    os.makedirs(outdir, exist_ok=True)
+    stronglyconn = False
+    maxtries = 100
+    tries = 0
+    while not stronglyconn:
+        gorig = generate_data(top, n, k)
+        stronglyconn = gorig.is_connected(mode='strong')
+        if tries > maxtries:
+            raise Exception('Could not find strongly connected graph')
+        tries += 1
+    info('{} tries to generate a strongly connected graph'.format(tries))
+
+    plot_graph(gorig, top, outdir)
+    gorig.to_directed()
+
+    initial_check(nsteps, batchsz, gorig)
     g = gorig.copy()
     wtrim = int(walklen * trimrel)
     ftrim = int(ifireepochs * trimrel)
@@ -135,7 +159,6 @@ def run_experiment(gorig, nsteps, batchsz, walklen, ifirethresh, ifireepochs, tr
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
     wvisits = np.zeros(shp, dtype=float)
-    # wvisits = np.random.randint(0, 100, size=shp)
     nfires = np.zeros(shp, dtype=int)
     avgdegrees = np.zeros(shp, dtype=int)
 
@@ -167,7 +190,8 @@ def plot_graph(g, top, outdir):
         aux = np.array(g.layout(layoutmodel).coords)
     coords = -1 + 2*(aux - np.min(aux, 0))/(np.max(aux, 0)-np.min(aux, 0)) # minmax
 
-    igraph.plot(g, pjoin(outdir, 'graph_und.png'), layout=coords.tolist())
+    f = pjoin(outdir, 'graph_und.png')
+    igraph.plot(g, f, layout=coords.tolist())
 
 ##########################################################
 def initial_check(nepochs, batchsz, g):
@@ -210,54 +234,46 @@ def plot_correlation_degree(meas, label, degrees, outpath):
     plt.close()
 
 ##########################################################
-def plot_correlations(wvisits, nfires, degrees, outdir, filesuff):
-    woutpath = pjoin(outdir, 'w_' + filesuff + '.png')
-    foutpath = pjoin(outdir, 'f_' + filesuff + '.png')
-    # plot_correlation_degree(wvisits, 'Walk visits', degrees, woutpath)
+def plot_correlations(wvisits, nfires, degrees, epoch, outdir):
+    woutpath = pjoin(outdir, 'w_{:03d}.png'.format(epoch))
+    foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
+    plot_correlation_degree(wvisits, 'Walk visits', degrees, woutpath)
     plot_correlation_degree(nfires, 'Number of fires', degrees, foutpath)
 
 ##########################################################
-def main(cfg):
+def main(cfg, nprocs):
     np.random.seed(cfg.seed); random.seed(cfg.seed)
     stronglyconn = False
     maxtries = 100
     tries = 0
 
-    while not stronglyconn:
-        g = generate_data(cfg.top, cfg.nvertices, cfg.avgdegree)
-        stronglyconn = g.is_connected(mode='strong')
-        if tries > maxtries:
-            raise Exception('Could not find strongly connected graph')
-        tries += 1
-    info('{} tries to generate a strongly connected graph'.format(tries))
-
-    plot_graph(g, cfg.top, cfg.outdir)
-    g.to_directed()
-
-    initial_check(cfg.nepochs, cfg.batchsz, g)
-
-    retshp = (cfg.nrealizations, cfg.nepochs + 1, g.vcount())
+    retshp = (cfg.nrealizations, cfg.nepochs + 1, cfg.nvertices)
     wvisits = - np.ones(retshp, dtype=int)
     nfires = - np.ones(retshp, dtype=int)
     degrees = - np.ones(retshp, dtype=int)
 
-    for r in range(cfg.nrealizations):
-        info('Realization {}'.format(r))
-        kd, wv, nf = run_experiment(g, cfg.nepochs, cfg.batchsz, cfg.walklen,
-                                cfg.ifirethresh, cfg.ifireepochs, cfg.trimrel)
-        wvisits[r, :, :] = wv
-        nfires[r, :, :] = nf
-        degrees[r, :] = kd
+    pool = Pool(nprocs)
+    params = []
+    for seed in range(cfg.nrealizations):
+        params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nepochs,
+                        cfg.batchsz, cfg.walklen, cfg.ifirethresh,
+                        cfg.ifireepochs, cfg.trimrel, cfg.outdir, seed] )
+    ret = pool.map(run_experiment_lst, params)
+
+    for i, r in enumerate(ret):
+        degrees[i, :] = r[0]
+        wvisits[i, :, :] = r[1]
+        nfires[i, :, :] = r[2]
 
     np.save(pjoin(cfg.outdir, 'degrees.npy'), degrees)
     np.save(pjoin(cfg.outdir, 'wvisits.npy'), wvisits)
     np.save(pjoin(cfg.outdir, 'nfires.npy'), nfires)
 
     for i in range(wvisits.shape[0]): # realization
+        outdir = pjoin(cfg.outdir, '{:02d}'.format(i))
         for k in range(wvisits.shape[1]): # epoch
-            filesuff = '{:02d}_{:04d}'.format(i, k)
             plot_correlations(wvisits[i, k, :], nfires[i, k, :], degrees[i, k, :],
-                              cfg.outdir, filesuff)
+                              k, outdir)
 
 ##########################################################
 if __name__ == "__main__":
@@ -265,6 +281,7 @@ if __name__ == "__main__":
     t0 = time.time()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('config', help='config in json format')
+    parser.add_argument('--nprocs', default=1, type=int, help='Number of processes')
     args = parser.parse_args()
 
     cfg = json.load(open(args.config),
@@ -272,7 +289,7 @@ if __name__ == "__main__":
     os.makedirs(cfg.outdir, exist_ok=True)
     readmepath = create_readme(sys.argv, cfg.outdir)
     shutil.copy(args.config, pjoin(cfg.outdir, 'config.json'))
-    main(cfg)
+    main(cfg, args.nprocs)
 
     info('Elapsed time:{:.02f}s'.format(time.time()-t0))
     info('Output generated in {}'.format(cfg.outdir))
