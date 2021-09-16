@@ -55,13 +55,22 @@ def int_and_fire(gin, threshold, tmax, trimsz):
     return fires
 
 ##########################################################
+def find_closest_factors(n):
+    m = int(np.sqrt(n))
+    while n % m != 0:
+        m -= 1
+    return m, n / m
+
+##########################################################
 def generate_data(top, n, k):
     """Generate data"""
     info(inspect.stack()[0][3] + '()')
     m = round(k / 2)
-    width = int(np.sqrt(n))
+
+    h, w = find_closest_factors(n)
+
     if top == 'la':
-        g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
+        g = igraph.Graph.Lattice([w, h], nei=1, circular=False)
     elif top == 'er':
         erdosprob = k / n
         g = igraph.Graph.Erdos_Renyi(n, erdosprob)
@@ -69,7 +78,7 @@ def generate_data(top, n, k):
         g = igraph.Graph.Barabasi(n, m)
     elif top == 'ws':
         rewprob = 0.2
-        g = igraph.Graph.Lattice([width, width], nei=1, circular=False)
+        g = igraph.Graph.Lattice([w, h], nei=1, circular=False)
         g.rewire_edges(rewprob)
     elif top == 'gr':
         radius = 3 # radius = get_rgg_params(n, k)
