@@ -280,7 +280,7 @@ def main(cfg, nprocs):
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
     else:
-        info('Running in parallel ({})'.format(cfg.nprocs[0]))
+        info('Running in parallel ({})'.format(nprocs))
         pool = Pool(nprocs)
         corrs = pool.map(run_experiment_given_list, params)
 
