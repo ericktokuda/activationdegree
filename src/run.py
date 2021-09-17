@@ -282,7 +282,7 @@ def main(cfg, nprocs):
     else:
         info('Running in parallel ({})'.format(nprocs))
         pool = Pool(nprocs)
-        corrs = pool.map(run_experiment_given_list, params)
+        corrs = pool.map(run_experiment_lst, params)
 
     data = []
     for i in range(cfg.nrealizations):
