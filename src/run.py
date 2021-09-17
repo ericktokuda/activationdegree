@@ -21,6 +21,7 @@ import json
 import scipy
 import scipy.sparse as spa
 from multiprocessing import Pool
+import pandas as pd
 
 ##########################################################
 def int_and_fire(gin, threshold, tmax, trimsz):
@@ -83,7 +84,7 @@ def generate_data(top, n, k):
         g.rewire_edges(rewprob)
     elif top == 'gr':
         ngr, r = get_rgg_params(n, k)
-        g = igraph.Graph.GRG(ngr, radius).clusters().giant()
+        g = igraph.Graph.GRG(ngr, r).clusters().giant()
     elif top == 'sb':
         if k == 5: x = 4.5
         elif k == 6: x = 8.3
@@ -170,9 +171,9 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     err = - np.ones(shp, dtype=int)
     wvisits = np.zeros(shp, dtype=float)
     nfires = np.zeros(shp, dtype=float)
-    avgdegrees = np.zeros(shp, dtype=int)
+    degrees = np.zeros(shp, dtype=int)
 
-    avgdegrees[0, :] = g.degree(mode='out')
+    degrees[0, :] = g.degree(mode='out')
     wvisits[0, :] = evaluate_walk(0, g, walklen, wtrim)
     nfires[0, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim)
 
@@ -181,10 +182,19 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
         for _ in range(batchsz):
             try: g = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
-        avgdegrees[i+1, :] = g.degree(mode='out')
+        degrees[i+1, :] = g.degree(mode='out')
         wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, wtrim) / g.vcount()
         nfires[i+1, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim) / g.vcount()
-    return avgdegrees, wvisits, nfires
+
+    np.save(pjoin(outdir, 'degrees.npy'), degrees)
+    np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
+    np.save(pjoin(outdir, 'nfires.npy'), nfires)
+
+    corrs = []
+    for i in range(wvisits.shape[0]): # epoch
+        c1, c2 = plot_correlations(wvisits[i, :], nfires[i, :], degrees[i, :], i, outdir)
+        corrs.append([top, g.vcount(), seed, i, c1, c2])
+    return corrs
 
 ##########################################################
 def plot_graph(g, top, outdir):
@@ -213,13 +223,12 @@ def initial_check(nepochs, batchsz, g):
         raise Exception('Initial graph is not strongly connected.')
 
 ##########################################################
-def plot_correlation_degree(meas, label, degrees, outpath):
+def plot_correlation_degree(meas, label, degrees, p, outpath):
     """Plot the number of visits by the degree for each vertex.
     Each dot represent an vertex"""
     # info(inspect.stack()[0][3] + '()')
     W = 640; H = 480
     fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
-    p = pearsonr(degrees, meas)[0]
     ax.scatter(degrees, meas)
     ax.set_title('Pearson {:.03f}'.format(p))
     ax.set_xlabel('Vertex degree')
@@ -232,8 +241,11 @@ def plot_correlations(wvisits, nfires, degrees, epoch, outdir):
     woutpath = pjoin(outdir, 'w_{:03d}.png'.format(epoch))
     foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
 
-    plot_correlation_degree(wvisits, 'Walk visits', degrees, woutpath)
-    plot_correlation_degree(nfires, 'Number of fires', degrees, foutpath)
+    c1 = pearsonr(degrees, wvisits)[0]
+    c2 = pearsonr(degrees, nfires)[0]
+    plot_correlation_degree(wvisits, 'Frequency of walk visits', degrees, c1, woutpath)
+    plot_correlation_degree(nfires, 'Frequency of fires', degrees, c2, foutpath)
+    return c1, c2
 
 #############################################################
 def get_rgg_params(n, avgdegree):
@@ -258,37 +270,26 @@ def main(cfg, nprocs):
     tries = 0
 
     retshp = (cfg.nrealizations, cfg.nepochs + 1, cfg.nvertices)
-    wvisits = - np.ones(retshp, dtype=float)
-    nfires = - np.ones(retshp, dtype=float)
-    degrees = - np.ones(retshp, dtype=int)
-
+    seeds = [cfg.seed + i for i in range(cfg.nrealizations)]
     params = []
-    for seed in range(cfg.nrealizations):
+    for i in range(cfg.nrealizations):
         params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nepochs,
                         cfg.batchsz, cfg.walklen, cfg.ifirethresh,
-                        cfg.ifireepochs, cfg.trimrel, cfg.outdir, seed+cfg.seed] )
+                        cfg.ifireepochs, cfg.trimrel, cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
-        ret = [ run_experiment_lst(p) for p in params ]
+        corrs = [ run_experiment_lst(p) for p in params ]
     else:
         info('Running in parallel ({})'.format(cfg.nprocs[0]))
         pool = Pool(nprocs)
-        ret = pool.map(run_experiment_given_list, params)
+        corrs = pool.map(run_experiment_given_list, params)
 
-    for i, r in enumerate(ret):
-        degrees[i, :] = r[0]
-        wvisits[i, :, :] = r[1]
-        nfires[i, :, :] = r[2]
-
-    np.save(pjoin(cfg.outdir, 'degrees.npy'), degrees)
-    np.save(pjoin(cfg.outdir, 'wvisits.npy'), wvisits)
-    np.save(pjoin(cfg.outdir, 'nfires.npy'), nfires)
-
-    for i in range(wvisits.shape[0]): # realization
-        outdir = pjoin(cfg.outdir, '{:02d}'.format(i))
-        for k in range(wvisits.shape[1]): # epoch
-            plot_correlations(wvisits[i, k, :], nfires[i, k, :], degrees[i, k, :],
-                              k, outdir)
+    data = []
+    for i in range(cfg.nrealizations):
+        for j in range(cfg.nepochs + 1):
+            data.append(corrs[i][j])
+    cols = ['top', 'n', 'realiz', 'epoch', 'fvisits', 'ffires']
+    pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'), index=False)
 
 ##########################################################
 if __name__ == "__main__":
