@@ -18,6 +18,7 @@ import igraph
 from scipy.stats import pearsonr
 from myutils import info, create_readme
 import json
+import scipy
 import scipy.sparse as spa
 from multiprocessing import Pool
 
@@ -81,8 +82,8 @@ def generate_data(top, n, k):
         g = igraph.Graph.Lattice([w, h], nei=1, circular=False)
         g.rewire_edges(rewprob)
     elif top == 'gr':
-        radius = 3 # radius = get_rgg_params(n, k)
-        g = igraph.Graph.GRG(n, radius)
+        ngr, r = get_rgg_params(n, k)
+        g = igraph.Graph.GRG(ngr, radius).clusters().giant()
     elif top == 'sb':
         if k == 5: x = 4.5
         elif k == 6: x = 8.3
@@ -168,7 +169,7 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
     wvisits = np.zeros(shp, dtype=float)
-    nfires = np.zeros(shp, dtype=int)
+    nfires = np.zeros(shp, dtype=float)
     avgdegrees = np.zeros(shp, dtype=int)
 
     avgdegrees[0, :] = g.degree(mode='out')
@@ -181,9 +182,8 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
             try: g = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
         avgdegrees[i+1, :] = g.degree(mode='out')
-        # wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, trimsz) / g.vcount()
-        wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, wtrim)
-        nfires[i+1, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim)
+        wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, wtrim) / g.vcount()
+        nfires[i+1, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim) / g.vcount()
     return avgdegrees, wvisits, nfires
 
 ##########################################################
@@ -213,21 +213,6 @@ def initial_check(nepochs, batchsz, g):
         raise Exception('Initial graph is not strongly connected.')
 
 ##########################################################
-def plot_visits_degree(visits, degrees, outpath):
-    """Plot the number of visits by the degree for each vertex.
-    Each dot represent an vertex"""
-    # info(inspect.stack()[0][3] + '()')
-    W = 640; H = 480
-    fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
-    p = pearsonr(degrees, visits)[0]
-    ax.scatter(degrees, visits)
-    ax.set_title('Pearson {:.03f}'.format(p))
-    ax.set_xlabel('Vertex degree')
-    ax.set_ylabel('Number of visits')
-    plt.savefig(outpath)
-    plt.close()
-
-##########################################################
 def plot_correlation_degree(meas, label, degrees, outpath):
     """Plot the number of visits by the degree for each vertex.
     Each dot represent an vertex"""
@@ -246,8 +231,24 @@ def plot_correlation_degree(meas, label, degrees, outpath):
 def plot_correlations(wvisits, nfires, degrees, epoch, outdir):
     woutpath = pjoin(outdir, 'w_{:03d}.png'.format(epoch))
     foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
+
     plot_correlation_degree(wvisits, 'Walk visits', degrees, woutpath)
     plot_correlation_degree(nfires, 'Number of fires', degrees, foutpath)
+
+#############################################################
+def get_rgg_params(n, avgdegree):
+    rggcatalog = {
+        '600,6': [628, 0.0562]
+    }
+
+    k = '{},{}'.format(n, avgdegree)
+    if k in rggcatalog.keys(): return rggcatalog[k]
+
+    def f(r):
+        g = igraph.Graph.GRG(n, r)
+        return np.mean(g.degree()) - avgdegree
+
+    return n, scipy.optimize.brentq(f, 0.0001, 10000)
 
 ##########################################################
 def main(cfg, nprocs):
@@ -257,17 +258,22 @@ def main(cfg, nprocs):
     tries = 0
 
     retshp = (cfg.nrealizations, cfg.nepochs + 1, cfg.nvertices)
-    wvisits = - np.ones(retshp, dtype=int)
-    nfires = - np.ones(retshp, dtype=int)
+    wvisits = - np.ones(retshp, dtype=float)
+    nfires = - np.ones(retshp, dtype=float)
     degrees = - np.ones(retshp, dtype=int)
 
-    pool = Pool(nprocs)
     params = []
     for seed in range(cfg.nrealizations):
         params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nepochs,
                         cfg.batchsz, cfg.walklen, cfg.ifirethresh,
-                        cfg.ifireepochs, cfg.trimrel, cfg.outdir, seed] )
-    ret = pool.map(run_experiment_lst, params)
+                        cfg.ifireepochs, cfg.trimrel, cfg.outdir, seed+cfg.seed] )
+
+    if nprocs == 1:
+        ret = [ run_experiment_lst(p) for p in params ]
+    else:
+        info('Running in parallel ({})'.format(cfg.nprocs[0]))
+        pool = Pool(nprocs)
+        ret = pool.map(run_experiment_given_list, params)
 
     for i, r in enumerate(ret):
         degrees[i, :] = r[0]
