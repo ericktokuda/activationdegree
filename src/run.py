@@ -87,7 +87,6 @@ def generate_data(top, n, k):
         mindiff = 999
         for i in range(3): # Get the graph with closest nvertices
             gnew = igraph.Graph.GRG(ngr, r).clusters().giant()
-            print(gnew.vcount())
             if np.abs(gnew.vcount() - n) >= mindiff: continue
             g = gnew
             mindiff = np.abs(g.vcount() - n)
