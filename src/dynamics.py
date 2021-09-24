@@ -24,7 +24,7 @@ from multiprocessing import Pool
 import pandas as pd
 
 ##########################################################
-def int_and_fire(gin, threshold, tmax, trimsz):
+def simu_intandfire(gin, threshold, tmax, trimsz):
     """Simplified integrate-and-fire.
     Adapted from @chcomin. If you use this code, please cite:
     'Structure and dynamics: the transition from nonequilibrium to equilibrium in
@@ -55,6 +55,23 @@ def int_and_fire(gin, threshold, tmax, trimsz):
         acc = acc - acc*is_spiking + charge_gain
 
     return fires
+
+##########################################################
+def simu_epidemics(gin, beta, gama, trimsz):
+    """Simulate SIS epidemics model
+    """
+    g = gin.copy()
+    n = g.vcount()
+
+    for i in range(trimsz):
+        pass
+
+    ninfec = np.zeros(n, dtype=int)
+    for i in range(tmax-trimsz):
+        pass
+
+
+    return ninfec
 
 ##########################################################
 def find_closest_factors(n):
@@ -126,7 +143,7 @@ def remove_arc_conn(g):
     raise Exception()
 
 ##########################################################
-def evaluate_walk(idx, g, walklen, trimsz):
+def simu_walks(idx, g, walklen, trimsz):
     """Walk with length @walklen in graph @g and update the @visits and @avgdgrees,
     in the positions given by @idx. The first @trimsz of the walk is disregarded."""
     adj = np.array(g.get_adjacency().data)
@@ -148,7 +165,6 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
                    trimrel, outrootdir, seed):
     """Remove @batchsz arcs, @nsteps times and evaluate a walk of len
     @walklen and the integrate-and-fire dynamics"""
-    # info(inspect.stack()[0][3] + '()')
     np.random.seed(seed); random.seed(seed)
 
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
@@ -171,25 +187,30 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     g = gorig.copy()
     wtrim = int(walklen * trimrel)
     ftrim = int(ifireepochs * trimrel)
+    etrim = int(epidepochs * trimrel)
 
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
     wvisits = np.zeros(shp, dtype=float)
     nfires = np.zeros(shp, dtype=float)
+    ninfec = np.zeros(shp, dtype=float)
     degrees = np.zeros(shp, dtype=int)
 
     degrees[0, :] = g.degree(mode='out')
-    wvisits[0, :] = evaluate_walk(0, g, walklen, wtrim)
-    nfires[0, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim)
+    wvisits[0, :] = simu_walks(0, g, walklen, wtrim)
+    nfires[0, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
+    ninfec[0, :] = simu_epidemics(g, beta, gamma, etrim)
 
     for i in range(nsteps):
         info('Step {}'.format(i))
         for _ in range(batchsz):
             try: g = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
+        n = g.vcount()
         degrees[i+1, :] = g.degree(mode='out')
-        wvisits[i+1, :] = evaluate_walk(i+1, g, walklen, wtrim) / g.vcount()
-        nfires[i+1, :] = int_and_fire(g, ifirethresh, ifireepochs, ftrim) / g.vcount()
+        wvisits[i+1, :] = simu_walks(i+1, g, walklen, wtrim) / n
+        nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim) / n
+        ninfec[i+1, :] = simu_epidemics(g, beta, gamma, etrim) / n
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
@@ -197,7 +218,8 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
 
     corrs = []
     for i in range(wvisits.shape[0]): # epoch
-        c1, c2 = plot_correlations(wvisits[i, :], nfires[i, :], degrees[i, :], i, outdir)
+        c1, c2 = plot_correlations(wvisits[i, :], nfires[i, :],
+                degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2])
     return corrs
 
@@ -305,8 +327,7 @@ if __name__ == "__main__":
     parser.add_argument('--nprocs', default=1, type=int, help='Number of processes')
     args = parser.parse_args()
 
-    cfg = json.load(open(args.config),
-            object_hook=lambda d: SimpleNamespace(**d))
+    cfg = json.load(open(args.config), object_hook=lambda d: SimpleNamespace(**d))
     os.makedirs(cfg.outdir, exist_ok=True)
     readmepath = create_readme(sys.argv, cfg.outdir)
     shutil.copy(args.config, pjoin(cfg.outdir, 'config.json'))
