@@ -23,6 +23,10 @@ import scipy.sparse as spa
 from multiprocessing import Pool
 import pandas as pd
 
+
+##########################################################
+SUSCEPTIBLE = 0
+INFECTED = 1
 ##########################################################
 def simu_intandfire(gin, threshold, tmax, trimsz):
     """Simplified integrate-and-fire.
@@ -57,19 +61,44 @@ def simu_intandfire(gin, threshold, tmax, trimsz):
     return fires
 
 ##########################################################
-def simu_epidemics(gin, beta, gama, trimsz):
-    """Simulate SIS epidemics model
-    """
-    g = gin.copy()
-    n = g.vcount()
+def infection_step(adj, status, beta, gamma):
+    """Short description """
+    info(inspect.stack()[0][3] + '()')
 
+    # q = 1 - beta # Prob of not infecting
+    q = np.ones(len(adj), dtype=float) - beta
+
+    # Infect
+    aux = adj[status.astype(bool), :] # Filter by infected (assumes infected=1)
+    kins = np.sum(aux, axis=0)
+    probs = 1 - np.power(q, kins)
+    breakpoint()
+    
+    pass
+
+##########################################################
+def set_initial_status(n, i0):
+    """Set initial status"""
+    status = np.zeros(n, dtype=int)
+    choice = np.random.choice(range(n), size=i0, replace=False)
+    status[choice] = INFECTED
+    return status
+
+##########################################################
+def simu_sis(gin, beta, gamma, i0, trimsz):
+    """Simulate the SIS epidemics model
+    """
+    adj = np.array(gin.get_adjacency().data)
+    n = gin.vcount()
+
+    status = set_initial_status(n, i0)
     for i in range(trimsz):
-        pass
+        status, _ = infection_step(adj, status, beta, gamma)
 
     ninfec = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
-        pass
-
+        status, newinf = infection_step(adj, status, beta, gamma)
+        ninf += newinf
 
     return ninfec
 
@@ -143,9 +172,10 @@ def remove_arc_conn(g):
     raise Exception()
 
 ##########################################################
-def simu_walks(idx, g, walklen, trimsz):
-    """Walk with length @walklen in graph @g and update the @visits and @avgdgrees,
-    in the positions given by @idx. The first @trimsz of the walk is disregarded."""
+def simu_walk(idx, g, walklen, trimsz):
+    """Walk with length @walklen in graph @g and update the @visits and
+    @avgdgrees, in the positions given by @idx.
+    The first @trimsz of the walk is disregarded."""
     adj = np.array(g.get_adjacency().data)
     trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
     startnode = np.random.randint(0, g.vcount())
@@ -162,7 +192,7 @@ def run_experiment_lst(params):
 
 ##########################################################
 def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs,
-                   trimrel, outrootdir, seed):
+                   beta, gamma, i0rel, epidepochs, trimrel, outrootdir, seed):
     """Remove @batchsz arcs, @nsteps times and evaluate a walk of len
     @walklen and the integrate-and-fire dynamics"""
     np.random.seed(seed); random.seed(seed)
@@ -188,6 +218,7 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     wtrim = int(walklen * trimrel)
     ftrim = int(ifireepochs * trimrel)
     etrim = int(epidepochs * trimrel)
+    i0 = int(i0rel*n)
 
     shp = (nsteps+1, g.vcount())
     err = - np.ones(shp, dtype=int)
@@ -197,9 +228,9 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     degrees = np.zeros(shp, dtype=int)
 
     degrees[0, :] = g.degree(mode='out')
-    wvisits[0, :] = simu_walks(0, g, walklen, wtrim)
+    wvisits[0, :] = simu_walk(0, g, walklen, wtrim)
     nfires[0, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
-    ninfec[0, :] = simu_epidemics(g, beta, gamma, etrim)
+    ninfec[0, :] = simu_sis(g, beta, gamma, i0, etrim)
 
     for i in range(nsteps):
         info('Step {}'.format(i))
@@ -208,9 +239,9 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
             except: raise Exception('Could not remove arc in step {}'.format(i))
         n = g.vcount()
         degrees[i+1, :] = g.degree(mode='out')
-        wvisits[i+1, :] = simu_walks(i+1, g, walklen, wtrim) / n
+        wvisits[i+1, :] = simu_walk(i+1, g, walklen, wtrim) / n
         nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim) / n
-        ninfec[i+1, :] = simu_epidemics(g, beta, gamma, etrim) / n
+        ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim) / n
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
@@ -302,7 +333,8 @@ def main(cfg, nprocs):
     for i in range(cfg.nrealizations):
         params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nepochs,
                         cfg.batchsz, cfg.walklen, cfg.ifirethresh,
-                        cfg.ifireepochs, cfg.trimrel, cfg.outdir, seeds[i]] )
+                        cfg.ifireepochs, cfg.beta, cfg.gamma, cfg.i0rel,
+                        cfg.trimrel, cfg.epidepochs, cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
@@ -316,7 +348,8 @@ def main(cfg, nprocs):
         for j in range(cfg.nepochs + 1):
             data.append(corrs[i][j])
     cols = ['top', 'n', 'realiz', 'epoch', 'fvisits', 'ffires']
-    pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'), index=False)
+    pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'),
+            index=False)
 
 ##########################################################
 if __name__ == "__main__":
@@ -324,7 +357,8 @@ if __name__ == "__main__":
     t0 = time.time()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('config', help='config in json format')
-    parser.add_argument('--nprocs', default=1, type=int, help='Number of processes')
+    parser.add_argument('--nprocs', default=1, type=int,
+            help='Number of processes')
     args = parser.parse_args()
 
     cfg = json.load(open(args.config), object_hook=lambda d: SimpleNamespace(**d))

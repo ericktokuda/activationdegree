@@ -4,8 +4,15 @@
   "avgdegree": 7,
   "nepochs": 5,
   "batchsz": 4,
+  "trimrel": 0.2,
   "nrealizations": 3,
   "walklen": 9,
+  "ifirethresh": 5,
+  "ifireepochs": 1000,
+  "beta": 0.7,
+  "gamma": 0.5,
+  "i0rel": 0.2,
+  "epidepochs": 100,
   "seed": 0,
   "outdir": "/tmp/out/"
 }
