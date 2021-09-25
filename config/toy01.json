@@ -2,7 +2,7 @@
   "top": "la",
   "nvertices": 75,
   "avgdegree": 7,
-  "nepochs": 5,
+  "nbatches": 5,
   "batchsz": 4,
   "trimrel": 0.2,
   "nrealizations": 3,

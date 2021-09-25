@@ -65,16 +65,30 @@ def infection_step(adj, status, beta, gamma):
     """Short description """
     info(inspect.stack()[0][3] + '()')
 
-    # q = 1 - beta # Prob of not infecting
-    q = np.ones(len(adj), dtype=float) - beta
+    ninf0 = np.sum(status)
 
-    # Infect
-    aux = adj[status.astype(bool), :] # Filter by infected (assumes infected=1)
+    # Recovery
+    randvals = np.random.rand(np.sum(status))
+    lucky = randvals < gamma 
+    infinds = np.where(status)[0]
+    recinds = infinds[np.where(lucky)]
+    status[recinds] = 0
+
+    ninf1 = np.sum(status)
+    
+    # Infection
+    q = np.ones(len(adj), dtype=float) - beta
+    aux = adj[status.astype(bool), :] # Filter out arcs departing from recovered
     kins = np.sum(aux, axis=0)
     probs = 1 - np.power(q, kins)
-    breakpoint()
-    
-    pass
+    posprobids = np.where(probs)[0]
+    posprobs = probs[posprobids]
+    randvals = np.random.rand(len(posprobids))
+    relinds = np.where(posprobs < randvals)
+    status[posprobids[relinds]] = 1
+    ninf2 = np.sum(status)
+    # print(ninf0, ninf1, ninf2)
+    return status, ninf2 - ninf1
 
 ##########################################################
 def set_initial_status(n, i0):
@@ -85,7 +99,7 @@ def set_initial_status(n, i0):
     return status
 
 ##########################################################
-def simu_sis(gin, beta, gamma, i0, trimsz):
+def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
     """Simulate the SIS epidemics model
     """
     adj = np.array(gin.get_adjacency().data)
@@ -98,7 +112,7 @@ def simu_sis(gin, beta, gamma, i0, trimsz):
     ninfec = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
         status, newinf = infection_step(adj, status, beta, gamma)
-        ninf += newinf
+        ninfec += newinf
 
     return ninfec
 
@@ -191,9 +205,11 @@ def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
-def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs,
-                   beta, gamma, i0rel, epidepochs, trimrel, outrootdir, seed):
-    """Remove @batchsz arcs, @nsteps times and evaluate a walk of len
+def run_experiment(top, n, k, nbatches, batchsz, walklen,
+        ifirethresh, ifireepochs,
+        beta, gamma, i0rel, epidepochs,
+        trimrel, outrootdir, seed):
+    """Remove @batchsz arcs, @nbatches times and evaluate a walk of len
     @walklen and the integrate-and-fire dynamics"""
     np.random.seed(seed); random.seed(seed)
 
@@ -213,14 +229,14 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     plot_graph(gorig, top, outdir)
     gorig.to_directed()
 
-    initial_check(nsteps, batchsz, gorig)
+    initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
     wtrim = int(walklen * trimrel)
     ftrim = int(ifireepochs * trimrel)
     etrim = int(epidepochs * trimrel)
     i0 = int(i0rel*n)
 
-    shp = (nsteps+1, g.vcount())
+    shp = (nbatches+1, g.vcount())
     err = - np.ones(shp, dtype=int)
     wvisits = np.zeros(shp, dtype=float)
     nfires = np.zeros(shp, dtype=float)
@@ -230,9 +246,9 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
     degrees[0, :] = g.degree(mode='out')
     wvisits[0, :] = simu_walk(0, g, walklen, wtrim)
     nfires[0, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
-    ninfec[0, :] = simu_sis(g, beta, gamma, i0, etrim)
+    ninfec[0, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
 
-    for i in range(nsteps):
+    for i in range(nbatches):
         info('Step {}'.format(i))
         for _ in range(batchsz):
             try: g = remove_arc_conn(g)
@@ -241,17 +257,18 @@ def run_experiment(top, n, k, nsteps, batchsz, walklen, ifirethresh, ifireepochs
         degrees[i+1, :] = g.degree(mode='out')
         wvisits[i+1, :] = simu_walk(i+1, g, walklen, wtrim) / n
         nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim) / n
-        ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim) / n
+        ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs) / n
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
     np.save(pjoin(outdir, 'nfires.npy'), nfires)
+    np.save(pjoin(outdir, 'ninfect.npy'), ninfec)
 
     corrs = []
-    for i in range(wvisits.shape[0]): # epoch
-        c1, c2 = plot_correlations(wvisits[i, :], nfires[i, :],
+    for i in range(nbatches + 1): # nbatches
+        c1, c2, c3 = plot_correlations(wvisits[i, :], nfires[i, :], ninfec[i, :],
                 degrees[i, :], i, outdir)
-        corrs.append([top, g.vcount(), seed, i, c1, c2])
+        corrs.append([top, g.vcount(), seed, i, c1, c2, c3])
     return corrs
 
 ##########################################################
@@ -271,10 +288,10 @@ def plot_graph(g, top, outdir):
     igraph.plot(g, f, layout=coords.tolist())
 
 ##########################################################
-def initial_check(nepochs, batchsz, g):
+def initial_check(nbatches, batchsz, g):
     """Check whether too many arcs are being removed."""
-    if (nepochs * batchsz) > (0.75 * g.ecount()):
-        info('Consider altering nepochs, batchsz, and avgdegree.')
+    if (nbatches * batchsz) > (0.75 * g.ecount()):
+        info('Consider altering nbatches, batchsz, and avgdegree.')
         info('Execution may fail.')
         raise Exception('Too may arcs to be removed.')
     elif not g.is_connected(mode='strong'):
@@ -295,15 +312,21 @@ def plot_correlation_degree(meas, label, degrees, p, outpath):
     plt.close()
 
 ##########################################################
-def plot_correlations(wvisits, nfires, degrees, epoch, outdir):
+def plot_correlations(wvisits, nfires, ninfec, degrees, epoch, outdir):
     woutpath = pjoin(outdir, 'w_{:03d}.png'.format(epoch))
     foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
+    eoutpath = pjoin(outdir, 'e_{:03d}.png'.format(epoch))
 
     c1 = pearsonr(degrees, wvisits)[0]
     c2 = pearsonr(degrees, nfires)[0]
-    plot_correlation_degree(wvisits, 'Frequency of walk visits', degrees, c1, woutpath)
-    plot_correlation_degree(nfires, 'Frequency of fires', degrees, c2, foutpath)
-    return c1, c2
+    c3 = pearsonr(degrees, ninfec)[0]
+    t1 = 'Pearson correlation degree x number of visits',
+    t2 = 'Pearson correlation degree x number of fires',
+    t3 = 'Pearson correlation degree x number of infections',
+    plot_correlation_degree(wvisits, t1, degrees, c1, woutpath)
+    plot_correlation_degree(nfires, t2, degrees, c2, foutpath)
+    plot_correlation_degree(ninfec, t3, degrees, c3, eoutpath)
+    return c1, c2, c3
 
 #############################################################
 def get_rgg_params(n, avgdegree):
@@ -327,14 +350,14 @@ def main(cfg, nprocs):
     maxtries = 100
     tries = 0
 
-    retshp = (cfg.nrealizations, cfg.nepochs + 1, cfg.nvertices)
+    retshp = (cfg.nrealizations, cfg.nbatches + 1, cfg.nvertices)
     seeds = [cfg.seed + i for i in range(cfg.nrealizations)]
     params = []
     for i in range(cfg.nrealizations):
-        params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nepochs,
+        params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nbatches,
                         cfg.batchsz, cfg.walklen, cfg.ifirethresh,
                         cfg.ifireepochs, cfg.beta, cfg.gamma, cfg.i0rel,
-                        cfg.trimrel, cfg.epidepochs, cfg.outdir, seeds[i]] )
+                        cfg.epidepochs, cfg.trimrel, cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
@@ -344,10 +367,14 @@ def main(cfg, nprocs):
         corrs = pool.map(run_experiment_lst, params)
 
     data = []
+    breakpoint()
+    
     for i in range(cfg.nrealizations):
-        for j in range(cfg.nepochs + 1):
+        for j in range(cfg.nbatches + 1):
+            print(i, j)
             data.append(corrs[i][j])
-    cols = ['top', 'n', 'realiz', 'epoch', 'fvisits', 'ffires']
+
+    cols = ['top', 'n', 'realiz', 'epoch', 'corrwalk', 'corrfires', 'corrinfec']
     pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'),
             index=False)
 
