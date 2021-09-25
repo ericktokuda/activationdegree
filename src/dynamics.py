@@ -61,34 +61,33 @@ def simu_intandfire(gin, threshold, tmax, trimsz):
     return fires
 
 ##########################################################
-def infection_step(adj, status, beta, gamma):
-    """Short description """
-    info(inspect.stack()[0][3] + '()')
-
-    ninf0 = np.sum(status)
+def infection_step(adj, status0, beta, gamma):
+    """Individual iteration of the SIS transmission/recovery"""
+    # info(inspect.stack()[0][3] + '()')
 
     # Recovery
-    randvals = np.random.rand(np.sum(status))
+    status1 = status0.copy()
+    randvals = np.random.rand(np.sum(status0))
     lucky = randvals < gamma 
-    infinds = np.where(status)[0]
+    infinds = np.where(status0)[0]
     recinds = infinds[np.where(lucky)]
-    status[recinds] = 0
+    status1[recinds] = 0
 
-    ninf1 = np.sum(status)
     
     # Infection
+    status2 = status1.copy()
     q = np.ones(len(adj), dtype=float) - beta
-    aux = adj[status.astype(bool), :] # Filter out arcs departing from recovered
+    aux = adj[status1.astype(bool), :] # Filter out arcs departing from recovered
     kins = np.sum(aux, axis=0)
     probs = 1 - np.power(q, kins)
     posprobids = np.where(probs)[0]
     posprobs = probs[posprobids]
     randvals = np.random.rand(len(posprobids))
     relinds = np.where(posprobs < randvals)
-    status[posprobids[relinds]] = 1
-    ninf2 = np.sum(status)
-    # print(ninf0, ninf1, ninf2)
-    return status, ninf2 - ninf1
+    status2[posprobids[relinds]] = 1
+    balance = np.sum(status2) - np.sum(status0)
+    
+    return status2, status2 - status1
 
 ##########################################################
 def set_initial_status(n, i0):
@@ -106,9 +105,10 @@ def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
     n = gin.vcount()
 
     status = set_initial_status(n, i0)
+    
     for i in range(trimsz):
         status, _ = infection_step(adj, status, beta, gamma)
-
+        
     ninfec = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
         status, newinf = infection_step(adj, status, beta, gamma)
@@ -205,7 +205,7 @@ def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
-def run_experiment(top, n, k, nbatches, batchsz, walklen,
+def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
         ifirethresh, ifireepochs,
         beta, gamma, i0rel, epidepochs,
         trimrel, outrootdir, seed):
@@ -243,7 +243,7 @@ def run_experiment(top, n, k, nbatches, batchsz, walklen,
     ninfec = np.zeros(shp, dtype=float)
     degrees = np.zeros(shp, dtype=int)
 
-    degrees[0, :] = g.degree(mode='out')
+    degrees[0, :] = g.degree(mode=degmode)
     wvisits[0, :] = simu_walk(0, g, walklen, wtrim)
     nfires[0, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
     ninfec[0, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
@@ -254,7 +254,7 @@ def run_experiment(top, n, k, nbatches, batchsz, walklen,
             try: g = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
         n = g.vcount()
-        degrees[i+1, :] = g.degree(mode='out')
+        degrees[i+1, :] = g.degree(mode=degmode)
         wvisits[i+1, :] = simu_walk(i+1, g, walklen, wtrim) / n
         nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim) / n
         ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs) / n
@@ -262,7 +262,7 @@ def run_experiment(top, n, k, nbatches, batchsz, walklen,
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
     np.save(pjoin(outdir, 'nfires.npy'), nfires)
-    np.save(pjoin(outdir, 'ninfect.npy'), ninfec)
+    np.save(pjoin(outdir, 'ninfec.npy'), ninfec)
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
@@ -354,10 +354,10 @@ def main(cfg, nprocs):
     seeds = [cfg.seed + i for i in range(cfg.nrealizations)]
     params = []
     for i in range(cfg.nrealizations):
-        params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.nbatches,
-                        cfg.batchsz, cfg.walklen, cfg.ifirethresh,
-                        cfg.ifireepochs, cfg.beta, cfg.gamma, cfg.i0rel,
-                        cfg.epidepochs, cfg.trimrel, cfg.outdir, seeds[i]] )
+        params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.degmode,
+            cfg.nbatches, cfg.batchsz, cfg.walklen, cfg.ifirethresh,
+            cfg.ifireepochs, cfg.beta, cfg.gamma, cfg.i0rel,
+            cfg.epidepochs, cfg.trimrel, cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
@@ -367,11 +367,9 @@ def main(cfg, nprocs):
         corrs = pool.map(run_experiment_lst, params)
 
     data = []
-    breakpoint()
     
     for i in range(cfg.nrealizations):
         for j in range(cfg.nbatches + 1):
-            print(i, j)
             data.append(corrs[i][j])
 
     cols = ['top', 'n', 'realiz', 'epoch', 'corrwalk', 'corrfires', 'corrinfec']
