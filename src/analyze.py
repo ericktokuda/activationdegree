@@ -32,7 +32,7 @@ def plot_correlations_errbar(df, attrib, outdir):
         ax.errorbar(x, y, yerr, label=top)
 
     ax.set_xlabel('Number of arcs removed')
-    ax.set_ylabel('Number of ' + attrib)
+    ax.set_ylabel('Pearson correlation (degree x ' + attrib + ')')
     plt.legend()
     outpath = pjoin(outdir, '{}.png'.format(col))
     plt.savefig(outpath)

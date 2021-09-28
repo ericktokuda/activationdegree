@@ -63,30 +63,28 @@ def simu_intandfire(gin, threshold, tmax, trimsz):
 ##########################################################
 def infection_step(adj, status0, beta, gamma):
     """Individual iteration of the SIS transmission/recovery"""
-    # info(inspect.stack()[0][3] + '()')
 
     # Recovery
     status1 = status0.copy()
     randvals = np.random.rand(np.sum(status0))
-    lucky = randvals < gamma 
+    lucky = randvals < gamma
     infinds = np.where(status0)[0]
     recinds = infinds[np.where(lucky)]
     status1[recinds] = 0
 
-    
     # Infection
     status2 = status1.copy()
-    q = np.ones(len(adj), dtype=float) - beta
+    q = np.ones(len(adj), dtype=float) - beta # Prob of not being infected, q
     aux = adj[status1.astype(bool), :] # Filter out arcs departing from recovered
     kins = np.sum(aux, axis=0)
-    probs = 1 - np.power(q, kins)
+    probs = 1 - np.power(q, kins) # Prob of infecting is (1-q^kin)
     posprobids = np.where(probs)[0]
     posprobs = probs[posprobids]
-    randvals = np.random.rand(len(posprobids))
-    relinds = np.where(posprobs < randvals)
+    randvals = np.random.rand(len(posprobs))
+    relinds = np.where(randvals < posprobs)
     status2[posprobids[relinds]] = 1
     balance = np.sum(status2) - np.sum(status0)
-    
+
     return status2, status2 - status1
 
 ##########################################################
@@ -105,10 +103,10 @@ def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
     n = gin.vcount()
 
     status = set_initial_status(n, i0)
-    
+
     for i in range(trimsz):
         status, _ = infection_step(adj, status, beta, gamma)
-        
+
     ninfec = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
         status, newinf = infection_step(adj, status, beta, gamma)
@@ -320,9 +318,9 @@ def plot_correlations(wvisits, nfires, ninfec, degrees, epoch, outdir):
     c1 = pearsonr(degrees, wvisits)[0]
     c2 = pearsonr(degrees, nfires)[0]
     c3 = pearsonr(degrees, ninfec)[0]
-    t1 = 'Pearson correlation degree x number of visits',
-    t2 = 'Pearson correlation degree x number of fires',
-    t3 = 'Pearson correlation degree x number of infections',
+    t1 = 'Relative number of visits'
+    t2 = 'Relative number of fires'
+    t3 = 'Relative number of infections'
     plot_correlation_degree(wvisits, t1, degrees, c1, woutpath)
     plot_correlation_degree(nfires, t2, degrees, c2, foutpath)
     plot_correlation_degree(ninfec, t3, degrees, c3, eoutpath)
@@ -367,7 +365,7 @@ def main(cfg, nprocs):
         corrs = pool.map(run_experiment_lst, params)
 
     data = []
-    
+
     for i in range(cfg.nrealizations):
         for j in range(cfg.nbatches + 1):
             data.append(corrs[i][j])

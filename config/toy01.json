@@ -1,5 +1,5 @@
 {
-  "top": "ba",
+  "top": "er",
   "nvertices": 300,
   "avgdegree": 7,
   "degmode": "in",
@@ -10,10 +10,10 @@
   "walklen": 10,
   "ifirethresh": 5,
   "ifireepochs": 100,
-  "beta": 0.7,
-  "gamma": 0.2,
+  "beta": 0.6,
+  "gamma": 0.5,
   "i0rel": 0.2,
-  "epidepochs": 10000,
+  "epidepochs": 5000,
   "seed": 0,
   "outdir": "/tmp/out/"
 }
