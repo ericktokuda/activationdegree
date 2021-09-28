@@ -236,9 +236,9 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
 
     shp = (nbatches+1, g.vcount())
     err = - np.ones(shp, dtype=int)
-    wvisits = np.zeros(shp, dtype=float)
-    nfires = np.zeros(shp, dtype=float)
-    ninfec = np.zeros(shp, dtype=float)
+    wvisits = np.zeros(shp, dtype=int)
+    nfires = np.zeros(shp, dtype=int)
+    ninfec = np.zeros(shp, dtype=int)
     degrees = np.zeros(shp, dtype=int)
 
     degrees[0, :] = g.degree(mode=degmode)
@@ -251,11 +251,10 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
         for _ in range(batchsz):
             try: g = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
-        n = g.vcount()
         degrees[i+1, :] = g.degree(mode=degmode)
-        wvisits[i+1, :] = simu_walk(i+1, g, walklen, wtrim) / n
-        nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim) / n
-        ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs) / n
+        wvisits[i+1, :] = simu_walk(i+1, g, walklen, wtrim)
+        nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
+        ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
@@ -264,7 +263,7 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
-        c1, c2, c3 = plot_correlations(wvisits[i, :], nfires[i, :], ninfec[i, :],
+        c1, c2, c3 = calculate_correlations(wvisits[i, :], nfires[i, :], ninfec[i, :],
                 degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2, c3])
     return corrs
@@ -302,7 +301,7 @@ def plot_correlation_degree(meas, label, degrees, p, outpath):
     # info(inspect.stack()[0][3] + '()')
     W = 640; H = 480
     fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
-    ax.scatter(degrees, meas)
+    ax.scatter(degrees, meas, alpha=.5)
     ax.set_title('Pearson {:.03f}'.format(p))
     ax.set_xlabel('Vertex degree')
     ax.set_ylabel(label)
@@ -310,20 +309,23 @@ def plot_correlation_degree(meas, label, degrees, p, outpath):
     plt.close()
 
 ##########################################################
-def plot_correlations(wvisits, nfires, ninfec, degrees, epoch, outdir):
+def calculate_correlations(wvisits, nfires, ninfec, degrees, epoch, outdir):
     woutpath = pjoin(outdir, 'w_{:03d}.png'.format(epoch))
     foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
     eoutpath = pjoin(outdir, 'e_{:03d}.png'.format(epoch))
 
-    c1 = pearsonr(degrees, wvisits)[0]
-    c2 = pearsonr(degrees, nfires)[0]
-    c3 = pearsonr(degrees, ninfec)[0]
+    wvisitsr = wvisits / np.sum(wvisits)
+    nfiresr = nfires / np.sum(nfires)
+    ninfecr = ninfec / np.sum(ninfec)
+    c1 = pearsonr(degrees, wvisitsr)[0]
+    c2 = pearsonr(degrees, nfiresr)[0]
+    c3 = pearsonr(degrees, ninfecr)[0]
     t1 = 'Relative number of visits'
     t2 = 'Relative number of fires'
     t3 = 'Relative number of infections'
-    plot_correlation_degree(wvisits, t1, degrees, c1, woutpath)
-    plot_correlation_degree(nfires, t2, degrees, c2, foutpath)
-    plot_correlation_degree(ninfec, t3, degrees, c3, eoutpath)
+    plot_correlation_degree(wvisitsr, t1, degrees, c1, woutpath)
+    plot_correlation_degree(nfiresr, t2, degrees, c2, foutpath)
+    plot_correlation_degree(ninfecr, t3, degrees, c3, eoutpath)
     return c1, c2, c3
 
 #############################################################
