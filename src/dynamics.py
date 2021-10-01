@@ -276,6 +276,8 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
+        # print(vvisit[i, :], vfires[i, :], vinfec[i, :],
+                # degrees[i, :], i)
         c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :], vinfec[i, :],
                 degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2, c3])
@@ -327,18 +329,26 @@ def calculate_correlations(vvisits, vfires, vinfec, degrees, epoch, outdir):
     foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
     eoutpath = pjoin(outdir, 'e_{:03d}.png'.format(epoch))
 
-    wvisitsr = vvisits / np.sum(vvisits)
-    nfiresr = vfires / np.sum(vfires)
-    ninfecr = vinfec / np.sum(vinfec)
-    c1 = pearsonr(degrees, wvisitsr)[0]
-    c2 = pearsonr(degrees, nfiresr)[0]
-    c3 = pearsonr(degrees, ninfecr)[0]
-    t1 = 'Relative number of visits'
-    t2 = 'Relative number of fires'
-    t3 = 'Relative number of infections'
-    plot_correlation_degree(wvisitsr, t1, degrees, c1, woutpath)
-    plot_correlation_degree(nfiresr, t2, degrees, c2, foutpath)
-    plot_correlation_degree(ninfecr, t3, degrees, c3, eoutpath)
+    c1, c2, c3 = 0, 0, 0
+
+    if np.sum(vvisits):
+        wvisitsr = vvisits / np.sum(vvisits)
+        c1 = pearsonr(degrees, wvisitsr)[0]
+        t1 = 'Relative number of visits'
+        plot_correlation_degree(wvisitsr, t1, degrees, c1, woutpath)
+
+    if np.sum(vfires):
+        nfiresr = vfires / np.sum(vfires)
+        c2 = pearsonr(degrees, nfiresr)[0]
+        t2 = 'Relative number of fires'
+        plot_correlation_degree(nfiresr, t2, degrees, c2, foutpath)
+
+    if np.sum(vinfec):
+        ninfecr = vinfec / np.sum(vinfec)
+        c3 = pearsonr(degrees, ninfecr)[0]
+        t3 = 'Relative number of infections'
+        plot_correlation_degree(ninfecr, t3, degrees, c3, eoutpath)
+
     return c1, c2, c3
 
 #############################################################
