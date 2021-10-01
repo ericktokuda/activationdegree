@@ -27,6 +27,7 @@ import pandas as pd
 ##########################################################
 SUSCEPTIBLE = 0
 INFECTED = 1
+
 ##########################################################
 def simu_intandfire(gin, threshold, tmax, trimsz):
     """Simplified integrate-and-fire.
@@ -58,7 +59,7 @@ def simu_intandfire(gin, threshold, tmax, trimsz):
         charge_gain = A.dot(is_spiking)
         acc = acc - acc*is_spiking + charge_gain
 
-    return fires
+    return fires, np.sum(is_spiking)
 
 ##########################################################
 def infection_step(adj, status0, beta, gamma):
@@ -112,7 +113,7 @@ def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
         status, newinf = infection_step(adj, status, beta, gamma)
         ninfec += newinf
 
-    return ninfec
+    return ninfec, np.sum(newinf)
 
 ##########################################################
 def find_closest_factors(n):
@@ -176,11 +177,13 @@ def remove_arc_conn(g):
     edgeids = np.arange(0, g.ecount())
     np.random.shuffle(edgeids)
 
+    ntries = 1
     for eid in edgeids:
         newg = g.copy()
         newg.delete_edges([g.es[eid]])
         if newg.is_connected(mode='strong'):
-            return newg
+            return newg, ntries
+        ntries += 1
     raise Exception()
 
 ##########################################################
@@ -224,6 +227,9 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
         tries += 1
     info('{} tries to generate a strongly connected graph'.format(tries))
 
+    nattempts = np.zeros(nbatches + 1, dtype=int)
+    nattempts[0] = tries
+
     plot_graph(gorig, top, outdir)
     gorig.to_directed()
 
@@ -236,34 +242,41 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
 
     shp = (nbatches+1, g.vcount())
     err = - np.ones(shp, dtype=int)
-    wvisits = np.zeros(shp, dtype=int)
-    nfires = np.zeros(shp, dtype=int)
-    ninfec = np.zeros(shp, dtype=int)
+    vvisit = np.zeros(shp, dtype=int) # Vertex visits
+    vfires = np.zeros(shp, dtype=int) # Vertex fires
+    vinfec = np.zeros(shp, dtype=int) # Vertex infections
     degrees = np.zeros(shp, dtype=int)
+    lfires = - np.ones(nbatches + 1, dtype=int) # Last step fires
+    linfec = - np.ones(nbatches + 1, dtype=int) # Last step inf
 
     degrees[0, :] = g.degree(mode=degmode)
-    wvisits[0, :] = simu_walk(0, g, walklen, wtrim)
-    nfires[0, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
-    ninfec[0, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
+    vvisit[0, :] = simu_walk(0, g, walklen, wtrim)
+    vfires[0, :], lfires[0] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
+    vinfec[0, :], linfec[0] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
 
     for i in range(nbatches):
         info('Step {}'.format(i))
+        # ntries = 0
         for _ in range(batchsz):
-            try: g = remove_arc_conn(g)
+            try: g, m = remove_arc_conn(g)
             except: raise Exception('Could not remove arc in step {}'.format(i))
+            nattempts[i+1] += m
         degrees[i+1, :] = g.degree(mode=degmode)
-        wvisits[i+1, :] = simu_walk(i+1, g, walklen, wtrim)
-        nfires[i+1, :] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
-        ninfec[i+1, :] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
+        vvisit[i+1, :] = simu_walk(i+1, g, walklen, wtrim)
+        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
+        vinfec[i+1, :], linfec[i+1] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
-    np.save(pjoin(outdir, 'wvisits.npy'), wvisits)
-    np.save(pjoin(outdir, 'nfires.npy'), nfires)
-    np.save(pjoin(outdir, 'ninfec.npy'), ninfec)
+    np.save(pjoin(outdir, 'vvisit.npy'), vvisit)
+    np.save(pjoin(outdir, 'vfires.npy'), vfires)
+    np.save(pjoin(outdir, 'vinfec.npy'), vinfec)
+    np.save(pjoin(outdir, 'lfires.npy'), lfires)
+    np.save(pjoin(outdir, 'linfec.npy'), linfec)
+    np.save(pjoin(outdir, 'nattempts.npy'), nattempts)
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
-        c1, c2, c3 = calculate_correlations(wvisits[i, :], nfires[i, :], ninfec[i, :],
+        c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :], vinfec[i, :],
                 degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2, c3])
     return corrs
@@ -309,14 +322,14 @@ def plot_correlation_degree(meas, label, degrees, p, outpath):
     plt.close()
 
 ##########################################################
-def calculate_correlations(wvisits, nfires, ninfec, degrees, epoch, outdir):
+def calculate_correlations(vvisits, vfires, vinfec, degrees, epoch, outdir):
     woutpath = pjoin(outdir, 'w_{:03d}.png'.format(epoch))
     foutpath = pjoin(outdir, 'f_{:03d}.png'.format(epoch))
     eoutpath = pjoin(outdir, 'e_{:03d}.png'.format(epoch))
 
-    wvisitsr = wvisits / np.sum(wvisits)
-    nfiresr = nfires / np.sum(nfires)
-    ninfecr = ninfec / np.sum(ninfec)
+    wvisitsr = vvisits / np.sum(vvisits)
+    nfiresr = vfires / np.sum(vfires)
+    ninfecr = vinfec / np.sum(vinfec)
     c1 = pearsonr(degrees, wvisitsr)[0]
     c2 = pearsonr(degrees, nfiresr)[0]
     c3 = pearsonr(degrees, ninfecr)[0]
@@ -372,7 +385,7 @@ def main(cfg, nprocs):
         for j in range(cfg.nbatches + 1):
             data.append(corrs[i][j])
 
-    cols = ['top', 'n', 'realiz', 'epoch', 'corrwalk', 'corrfires', 'corrinfec']
+    cols = ['top', 'n', 'realiz', 'epoch', 'corrvisits', 'corrfires', 'corrinfec']
     pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'),
             index=False)
 
