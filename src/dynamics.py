@@ -175,12 +175,11 @@ def randomwalk(l, startnode, trans):
 def remove_two_arcs_conn(g, premoval, pedges, maxtries=100):
     """Remove two arcs, while keeping @g strongly connected. If @premoval
     is true, the arcs are removed in pair, in which case a random edge is
-    taken from
-    pedges. Return the new graph and the attempts to remove"""
+    taken from @pedges. Return the new graph and the attempts to remove"""
     
     ids = []
     if premoval:
-        pedges2  = list(pedges)
+        pedges2  = pedges.copy()
         np.random.shuffle(pedges2)
         
         for v1, v2 in pedges2:
@@ -188,24 +187,20 @@ def remove_two_arcs_conn(g, premoval, pedges, maxtries=100):
             e2 = g.get_eid(v2, v1) # backward arc
             ids.append((e1, e2))
     else:
-        edgeids = list(range(0, g.ecount()))
+        alledges = list(range(0, g.ecount())) # Two random arcs from all arcs
         for i in range(maxtries):
-            ids.append(random.sample(edgeids, k=2))
-        #TODO:remove duplicates
+            ids.append(random.sample(alledges, k=2)) # No reposition
 
     ntries = 1
     for e1, e2 in ids:
         newg = g.copy()
-        newg.delete_edges([g.es[e1]])
-        newg.delete_edges([g.es[e2]])
+        newg.delete_edges([e1, e2])
         if newg.is_connected(mode='strong'):
             arcs = [(g.es[e1].source, g.es[e1].target),
                     (g.es[e2].source, g.es[e2].target)]
             return newg, arcs, ntries
         ntries += 1
     raise Exception()
-
-    # return g, arcs, nattempts
 
 ##########################################################
 def simu_walk(idx, g, walklen, trimsz):
@@ -228,8 +223,8 @@ def update_pedges(arcs, pedges):
     pair1 = (np.min(arcs[0]), np.max(arcs[0]))
     pair2 = (np.min(arcs[1]), np.max(arcs[1]))
     
-    if pair1 in pedges: pedges.discard(pair1)
-    if pair2 in pedges: pedges.discard(pair2)
+    if pair1 in pedges: pedges.remove(pair1)
+    if pair2 in pedges: pedges.remove(pair2)
     return pedges
 
 ##########################################################
@@ -288,18 +283,14 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
     for e in g.es:
         vs = [e.source, e.target]
         pedges.add((np.min(vs), np.max(vs)))
+    pedges = list(pedges)
     
     for i in range(nbatches):
         info('Step {}'.format(i))
         for _ in range(batchsz):
-            # try: g, m = remove_arc_conn(g)
             try: g, arcs, m = remove_two_arcs_conn(g, paired, pedges)
             except: raise Exception('Could not remove arc in step {}'.format(i))
             pedges = update_pedges(arcs, pedges)
-            print(len(pedges))
-            breakpoint()
-            
-            
             nattempts[i+1] += m
 
         degrees[i+1, :] = g.degree(mode=degmode)
@@ -318,8 +309,6 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
-        # print(vvisit[i, :], vfires[i, :], vinfec[i, :],
-                # degrees[i, :], i)
         c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :], vinfec[i, :],
                 degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2, c3])
