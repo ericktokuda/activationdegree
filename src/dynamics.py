@@ -206,12 +206,17 @@ def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
-def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
-        ifirethresh, ifireepochs,
-        beta, gamma, i0rel, epidepochs,
-        trimrel, outrootdir, seed):
+def run_experiment(top, n, k, degmode, nbatches, batchsz,
+        paired, trimrel, wepochs, fepochs, fthesh,
+        eepochs, ei0, ebeta, egamma,
+        outrootdir, seed):
     """Remove @batchsz arcs, @nbatches times and evaluate a walk of len
-    @walklen and the integrate-and-fire dynamics"""
+    @wepochs and the integrate-and-fire dynamics"""
+        # params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.degmode,
+            # cfg.nbatches, cfg.batchsz, cfg.paired,
+            # cfg.trimrel, cfg.wepochs, cfg.fepochs, cfg.fthresh,
+            # cfg.eepochs, cfg.ei0rel, cfg.ebeta, cfg.egamma,
+            # cfg.trimrel, cfg.outdir, seeds[i]] )
     np.random.seed(seed); random.seed(seed)
 
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
@@ -235,10 +240,10 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
 
     initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
-    wtrim = int(walklen * trimrel)
-    ftrim = int(ifireepochs * trimrel)
-    etrim = int(epidepochs * trimrel)
-    i0 = int(i0rel*n)
+    wtrim = int(wepochs * trimrel)
+    ftrim = int(fepochs * trimrel)
+    etrim = int(eepochs * trimrel)
+    i0 = int(ei0*n)
 
     shp = (nbatches+1, g.vcount())
     err = - np.ones(shp, dtype=int)
@@ -250,9 +255,9 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
     linfec = - np.ones(nbatches + 1, dtype=int) # Last step inf
 
     degrees[0, :] = g.degree(mode=degmode)
-    vvisit[0, :] = simu_walk(0, g, walklen, wtrim)
-    vfires[0, :], lfires[0] = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
-    vinfec[0, :], linfec[0] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
+    vvisit[0, :] = simu_walk(0, g, wepochs, wtrim)
+    vfires[0, :], lfires[0] = simu_intandfire(g, fthesh, fepochs, ftrim)
+    vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
 
     for i in range(nbatches):
         info('Step {}'.format(i))
@@ -262,9 +267,9 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz, walklen,
             except: raise Exception('Could not remove arc in step {}'.format(i))
             nattempts[i+1] += m
         degrees[i+1, :] = g.degree(mode=degmode)
-        vvisit[i+1, :] = simu_walk(i+1, g, walklen, wtrim)
-        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, ifirethresh, ifireepochs, ftrim)
-        vinfec[i+1, :], linfec[i+1] = simu_sis(g, beta, gamma, i0, etrim, epidepochs)
+        vvisit[i+1, :] = simu_walk(i+1, g, wepochs, wtrim)
+        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthesh, fepochs, ftrim)
+        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'vvisit.npy'), vvisit)
@@ -378,9 +383,10 @@ def main(cfg, nprocs):
     params = []
     for i in range(cfg.nrealizations):
         params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.degmode,
-            cfg.nbatches, cfg.batchsz, cfg.walklen, cfg.ifirethresh,
-            cfg.ifireepochs, cfg.beta, cfg.gamma, cfg.i0rel,
-            cfg.epidepochs, cfg.trimrel, cfg.outdir, seeds[i]] )
+            cfg.nbatches, cfg.batchsz, cfg.paired,
+            cfg.trimrel, cfg.wepochs, cfg.fepochs, cfg.fthresh,
+            cfg.eepochs, cfg.ei0, cfg.ebeta, cfg.egamma,
+            cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
