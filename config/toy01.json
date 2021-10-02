@@ -5,7 +5,7 @@
   "degmode": "in",
   "nbatches": 5,
   "batchsz": 4,
-  "paired": false,
+  "paired": true,
   "trimrel": 0.2,
   "wepochs": 10,
   "fepochs": 100,

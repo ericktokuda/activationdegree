@@ -22,7 +22,7 @@ import scipy
 import scipy.sparse as spa
 from multiprocessing import Pool
 import pandas as pd
-
+from itertools import combinations
 
 ##########################################################
 SUSCEPTIBLE = 0
@@ -172,19 +172,40 @@ def randomwalk(l, startnode, trans):
     return walk
 
 ##########################################################
-def remove_arc_conn(g):
-    """Remove and arc while keep the graph strongly connected"""
-    edgeids = np.arange(0, g.ecount())
-    np.random.shuffle(edgeids)
+def remove_two_arcs_conn(g, premoval, pedges, maxtries=100):
+    """Remove two arcs, while keeping @g strongly connected. If @premoval
+    is true, the arcs are removed in pair, in which case a random edge is
+    taken from
+    pedges. Return the new graph and the attempts to remove"""
+    
+    ids = []
+    if premoval:
+        pedges2  = list(pedges)
+        np.random.shuffle(pedges2)
+        
+        for v1, v2 in pedges2:
+            e1 = g.get_eid(v1, v2) # forward arc
+            e2 = g.get_eid(v2, v1) # backward arc
+            ids.append((e1, e2))
+    else:
+        edgeids = list(range(0, g.ecount()))
+        for i in range(maxtries):
+            ids.append(random.sample(edgeids, k=2))
+        #TODO:remove duplicates
 
     ntries = 1
-    for eid in edgeids:
+    for e1, e2 in ids:
         newg = g.copy()
-        newg.delete_edges([g.es[eid]])
+        newg.delete_edges([g.es[e1]])
+        newg.delete_edges([g.es[e2]])
         if newg.is_connected(mode='strong'):
-            return newg, ntries
+            arcs = [(g.es[e1].source, g.es[e1].target),
+                    (g.es[e2].source, g.es[e2].target)]
+            return newg, arcs, ntries
         ntries += 1
     raise Exception()
+
+    # return g, arcs, nattempts
 
 ##########################################################
 def simu_walk(idx, g, walklen, trimsz):
@@ -202,21 +223,25 @@ def simu_walk(idx, g, walklen, trimsz):
     return visits
 
 ##########################################################
+def update_pedges(arcs, pedges):
+    """Update the list of paired edges, @pedges, by removing the @arcs."""
+    pair1 = (np.min(arcs[0]), np.max(arcs[0]))
+    pair2 = (np.min(arcs[1]), np.max(arcs[1]))
+    
+    if pair1 in pedges: pedges.discard(pair1)
+    if pair2 in pedges: pedges.discard(pair2)
+    return pedges
+
+##########################################################
 def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
 def run_experiment(top, n, k, degmode, nbatches, batchsz,
         paired, trimrel, wepochs, fepochs, fthesh,
-        eepochs, ei0, ebeta, egamma,
-        outrootdir, seed):
+        eepochs, ei0, ebeta, egamma, outrootdir, seed):
     """Remove @batchsz arcs, @nbatches times and evaluate a walk of len
     @wepochs and the integrate-and-fire dynamics"""
-        # params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.degmode,
-            # cfg.nbatches, cfg.batchsz, cfg.paired,
-            # cfg.trimrel, cfg.wepochs, cfg.fepochs, cfg.fthresh,
-            # cfg.eepochs, cfg.ei0rel, cfg.ebeta, cfg.egamma,
-            # cfg.trimrel, cfg.outdir, seeds[i]] )
     np.random.seed(seed); random.seed(seed)
 
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
@@ -259,17 +284,29 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
     vfires[0, :], lfires[0] = simu_intandfire(g, fthesh, fepochs, ftrim)
     vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
 
+    pedges = set()
+    for e in g.es:
+        vs = [e.source, e.target]
+        pedges.add((np.min(vs), np.max(vs)))
+    
     for i in range(nbatches):
         info('Step {}'.format(i))
-        # ntries = 0
         for _ in range(batchsz):
-            try: g, m = remove_arc_conn(g)
+            # try: g, m = remove_arc_conn(g)
+            try: g, arcs, m = remove_two_arcs_conn(g, paired, pedges)
             except: raise Exception('Could not remove arc in step {}'.format(i))
+            pedges = update_pedges(arcs, pedges)
+            print(len(pedges))
+            breakpoint()
+            
+            
             nattempts[i+1] += m
+
         degrees[i+1, :] = g.degree(mode=degmode)
         vvisit[i+1, :] = simu_walk(i+1, g, wepochs, wtrim)
         vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthesh, fepochs, ftrim)
-        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
+        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim,
+                eepochs)
 
     np.save(pjoin(outdir, 'degrees.npy'), degrees)
     np.save(pjoin(outdir, 'vvisit.npy'), vvisit)
@@ -377,6 +414,8 @@ def main(cfg, nprocs):
     stronglyconn = False
     maxtries = 100
     tries = 0
+
+    assert cfg.batchsz % 2 == 0 # Standardization, when considering paired removal
 
     retshp = (cfg.nrealizations, cfg.nbatches + 1, cfg.nvertices)
     seeds = [cfg.seed + i for i in range(cfg.nrealizations)]
