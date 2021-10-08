@@ -22,7 +22,6 @@ import scipy
 import scipy.sparse as spa
 from multiprocessing import Pool
 import pandas as pd
-from itertools import combinations
 
 ##########################################################
 SUSCEPTIBLE = 0
@@ -97,7 +96,7 @@ def set_initial_status(n, i0):
     return status
 
 ##########################################################
-def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
+def simu_sis(gin, beta, gamma, i0, trimsz, tmax, spldelta):
     """Simulate the SIS epidemics model
     """
     adj = np.array(gin.get_adjacency().data)
@@ -105,15 +104,19 @@ def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
 
     status = set_initial_status(n, i0)
 
+    ninfected = np.zeros(int(tmax / spldelta), dtype=int)
     for i in range(trimsz):
         status, _ = infection_step(adj, status, beta, gamma)
+        if i % spldelta == 0: ninfected[int(i / spldelta)] = np.sum(status)
 
-    ninfec = np.zeros(n, dtype=int)
+    ninfections = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
         status, newinf = infection_step(adj, status, beta, gamma)
-        ninfec += newinf
+        ninfections += newinf
+        j = i + trimsz
+        if j % spldelta == 0: ninfected[int(j / spldelta)] = np.sum(status)
 
-    return ninfec, np.sum(newinf)
+    return ninfections, np.sum(newinf), ninfected
 
 ##########################################################
 def find_closest_factors(n):
@@ -222,10 +225,35 @@ def update_pedges(arcs, pedges):
     """Update the list of paired edges, @pedges, by removing the @arcs."""
     pair1 = (np.min(arcs[0]), np.max(arcs[0]))
     pair2 = (np.min(arcs[1]), np.max(arcs[1]))
-    
+
     if pair1 in pedges: pedges.remove(pair1)
     if pair2 in pedges: pedges.remove(pair2)
     return pedges
+
+##########################################################
+def generate_conn_graph(top, n, k, maxtries=100):
+    """Create a connected graph"""
+    info(inspect.stack()[0][3] + '()')
+    conn = False
+    tries = 0
+    while not conn:
+        g = generate_data(top, n, k)
+        conn = g.is_connected()
+        if tries > maxtries:
+            raise Exception('Could not find a connected graph')
+        tries += 1
+    info('{} tries to generate a undirected connected graph'.format(tries))
+    return g, tries
+
+##########################################################
+def get_pairs_conn_vertices(g):
+    """Get every pair of vertices with an arc in-between. The returned 2-uple
+    is ordered by vertexid. For example: [(2, 5), (6, 10)]"""
+    pedges = set()
+    for e in g.es:
+        vs = [e.source, e.target]
+        pedges.add((np.min(vs), np.max(vs)))
+    return list(pedges)
 
 ##########################################################
 def run_experiment_lst(params):
@@ -233,30 +261,22 @@ def run_experiment_lst(params):
 
 ##########################################################
 def run_experiment(top, n, k, degmode, nbatches, batchsz,
-        paired, trimrel, wepochs, fepochs, fthesh,
-        eepochs, ei0, ebeta, egamma, outrootdir, seed):
-    """Remove @batchsz arcs, @nbatches times and evaluate a walk of len
-    @wepochs and the integrate-and-fire dynamics"""
+                   paired, trimrel, wepochs, fepochs, fthesh,
+                   eepochs, ei0, ebeta, egamma, outrootdir, seed):
+    """Removes @batchsz arcs, @nbatches times and evaluate three different dynamics.
+    Calculates the correlation between vertex in-degree and the level of activity
+    """
     np.random.seed(seed); random.seed(seed)
 
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
     os.makedirs(outdir, exist_ok=True)
-    stronglyconn = False
-    maxtries = 100
-    tries = 0
-    while not stronglyconn:
-        gorig = generate_data(top, n, k)
-        stronglyconn = gorig.is_connected(mode='strong')
-        if tries > maxtries:
-            raise Exception('Could not find strongly connected graph')
-        tries += 1
-    info('{} tries to generate a strongly connected graph'.format(tries))
+
+    gorig, tries = generate_conn_graph(top, n, k) # g is connected
+    plot_graph(gorig, top, outdir)
+    gorig.to_directed() # g is strongly connected
 
     nattempts = np.zeros(nbatches + 1, dtype=int)
     nattempts[0] = tries
-
-    plot_graph(gorig, top, outdir)
-    gorig.to_directed()
 
     initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
@@ -273,18 +293,18 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
     degrees = np.zeros(shp, dtype=int)
     lfires = - np.ones(nbatches + 1, dtype=int) # Last step fires
     linfec = - np.ones(nbatches + 1, dtype=int) # Last step inf
+    spldelta = 100 # Sampling delta
+    infsample = int(eepochs / spldelta)
+    infperepoch = - np.ones((nbatches + 1, infsample), dtype=int)
 
     degrees[0, :] = g.degree(mode=degmode)
     vvisit[0, :] = simu_walk(0, g, wepochs, wtrim)
     vfires[0, :], lfires[0] = simu_intandfire(g, fthesh, fepochs, ftrim)
-    vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
+    r = simu_sis(g, ebeta, egamma, i0, etrim, eepochs, spldelta)
+    vinfec[0, :], linfec[0], infperepoch[0, :] = r
 
-    pedges = set()
-    for e in g.es:
-        vs = [e.source, e.target]
-        pedges.add((np.min(vs), np.max(vs)))
-    pedges = list(pedges)
-    
+    pedges = get_pairs_conn_vertices(g)
+
     for i in range(nbatches):
         info('Step {}'.format(i))
         for _ in range(batchsz):
@@ -296,16 +316,12 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
         degrees[i+1, :] = g.degree(mode=degmode)
         vvisit[i+1, :] = simu_walk(i+1, g, wepochs, wtrim)
         vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthesh, fepochs, ftrim)
-        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim,
-                eepochs)
+        r = simu_sis(g, ebeta, egamma, i0, etrim, eepochs, spldelta)
+        vinfec[i+1, :], linfec[i+1], infperepoch[i+1, :] = r
 
-    np.save(pjoin(outdir, 'degrees.npy'), degrees)
-    np.save(pjoin(outdir, 'vvisit.npy'), vvisit)
-    np.save(pjoin(outdir, 'vfires.npy'), vfires)
-    np.save(pjoin(outdir, 'vinfec.npy'), vinfec)
-    np.save(pjoin(outdir, 'lfires.npy'), lfires)
-    np.save(pjoin(outdir, 'linfec.npy'), linfec)
-    np.save(pjoin(outdir, 'nattempts.npy'), nattempts)
+    for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec',
+              'nattempts', 'infperepoch']:
+        np.save(pjoin(outdir, f + '.npy'), locals()[f])
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
@@ -399,22 +415,19 @@ def get_rgg_params(n, avgdegree):
 
 ##########################################################
 def main(cfg, nprocs):
-    np.random.seed(cfg.seed); random.seed(cfg.seed)
-    stronglyconn = False
-    maxtries = 100
-    tries = 0
-
     assert cfg.batchsz % 2 == 0 # Standardization, when considering paired removal
+
+    np.random.seed(cfg.seed); random.seed(cfg.seed)
 
     retshp = (cfg.nrealizations, cfg.nbatches + 1, cfg.nvertices)
     seeds = [cfg.seed + i for i in range(cfg.nrealizations)]
     params = []
     for i in range(cfg.nrealizations):
         params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.degmode,
-            cfg.nbatches, cfg.batchsz, cfg.paired,
-            cfg.trimrel, cfg.wepochs, cfg.fepochs, cfg.fthresh,
-            cfg.eepochs, cfg.ei0, cfg.ebeta, cfg.egamma,
-            cfg.outdir, seeds[i]] )
+                        cfg.nbatches, cfg.batchsz, cfg.paired,
+                        cfg.trimrel, cfg.wepochs, cfg.fepochs, cfg.fthresh,
+                        cfg.eepochs, cfg.ei0, cfg.ebeta, cfg.egamma,
+                        cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
@@ -430,8 +443,7 @@ def main(cfg, nprocs):
             data.append(corrs[i][j])
 
     cols = ['top', 'n', 'realiz', 'epoch', 'corrvisits', 'corrfires', 'corrinfec']
-    pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'),
-            index=False)
+    pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'), index=False)
 
 ##########################################################
 if __name__ == "__main__":
