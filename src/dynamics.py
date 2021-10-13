@@ -320,14 +320,14 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
         vinfec[i+1, :], linfec[i+1], infperepoch[i+1, :] = r
 
     for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec',
-              'nattempts', 'infperepoch']:
+              'nattempts', 'infperepoch', 'paired']:
         np.save(pjoin(outdir, f + '.npy'), locals()[f])
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
         c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :], vinfec[i, :],
                 degrees[i, :], i, outdir)
-        corrs.append([top, g.vcount(), seed, i, c1, c2, c3])
+        corrs.append([top, g.vcount(), seed, i, c1, c2, c3, int(paired)])
     return corrs
 
 ##########################################################
