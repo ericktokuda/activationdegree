@@ -14,50 +14,49 @@ import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 from myutils import info, create_readme
+from myutils.plot import palettes
+
+PALETTE = palettes['pastel']
 
 ##########################################################
-def plot_correlations_errbar(df, attrib, label, ax=None):
-    info(inspect.stack()[0][3] + '()')
-
-    nepochs = 10
-    batchsz = 30
-    x = [ i * batchsz for i in range(nepochs+1)]
-
-    col = 'corr' + attrib # Expects the naming fvisitis or ffires
-    for top in np.unique(df.top):
-        y = df.loc[df.top == top].groupby('epoch').mean()[col]
-        yerr = df.loc[df.top == top].groupby('epoch').std()[col]
-        # y = df.loc[df.top == top][col]
-        ax.errorbar(x, y, yerr, label='[{}] {}]'.format(label, top))
-
-    ax.set_xlabel('Number of arcs removed')
-    ax.set_ylabel('Pearson correlation (degree x ' + attrib + ')')
-    ax.set_ylim(0.5, 1.01)
-    plt.legend()
-    return fig, ax
-
-##########################################################
-def plot_correlations_all(corrpath, outdir):
+def plot_correlations_errbar(corrpath, nepochs, batchsz, outdir):
     """Plot correlation considering the columns paired and unpaired"""
     info(inspect.stack()[0][3] + '()')
 
-    df = pd.read_csv(corrpath)
     W = 640; H = 480
+    from matplotlib.legend_handler import HandlerLine2D, HandlerTuple
 
-    for col in ['visits', 'fires', 'infecs']:
+    df = pd.read_csv(corrpath)
+    xs = [ i * batchsz for i in range(nepochs+1)]
+
+    for attrib in ['corrvisits', 'corrfires', 'corrinfec']:
         fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
-        fig, ax = plot_correlations_errbar(df.loc[df.paired==False], col, 'unpaired',
-                                           ax, outdir)
-        plot_correlations_errbar(df.loc[df.paired==True], col, 'paired', ax, outdir)
-        outpath = pjoin(outdir, '{}.png'.format(col))
+        pp = []
+        for paired in np.unique(df.paired):
+            marker = 'o' if paired else 'x'
+            df2 = df.loc[df.paired == paired]
+            for j, top in enumerate(np.unique(df2.top)):
+                perepoch = df2.loc[df2.top == top].groupby('epoch')
+                ys = perepoch.mean()[attrib]
+                yerrs = perepoch.std()[attrib]
+                z = ax.errorbar(xs, ys, yerrs, label=top, marker=marker,
+                                c=PALETTE[j], alpha=.7)
+                pp += z
+
+        ax.set_xlabel('Number of arcs removed')
+        ax.set_ylabel('Pearson correlation (degree x ' + attrib + ')')
+        ax.set_ylim(0.5, 1.01)
+        # l = plt.legend([(pp[0], pp[1])], ['Two keys'], numpoints=1,
+               # handler_map={tuple: HandlerTuple(ndivide=None)})
+        plt.legend()
+        outpath = pjoin(outdir, '{}.png'.format(attrib))
         plt.savefig(outpath); plt.close()
 
 ##########################################################
 def main(outdir):
-    """Short description"""
     info(inspect.stack()[0][3] + '()')
     corrpath = './data/corrsall.csv'
-    plot_correlations_all(corrpath, outdir)
+    plot_correlations_errbar(corrpath, nepochs=10, batchsz=30, outdir=outdir)
 
 ##########################################################
 if __name__ == "__main__":
