@@ -53,10 +53,41 @@ def plot_correlations_errbar(corrpath, nepochs, batchsz, outdir):
         plt.savefig(outpath); plt.close()
 
 ##########################################################
+def analyze_sis(betasdir, nepochs, batchsz, outrootdir):
+    spldelta = 100 # Sampling delta of this measurement
+    for dbeta in sorted(os.listdir(betasdir)):
+        if not dbeta.startswith('b'): continue
+        allinfs = []
+        dbeta2 = pjoin(betasdir, dbeta)
+        outdir = pjoin(outrootdir, dbeta)
+        os.makedirs(outdir, exist_ok=True)
+        for drlz in sorted(os.listdir(dbeta2)):
+            drlz2 = pjoin(dbeta2, drlz)
+            if not os.path.isdir(drlz2): continue
+            infs = np.load(pjoin(drlz2, 'infperepoch.npy'))
+            allinfs.append(infs)
+        allinfs = np.array(allinfs)
+        means = np.mean(allinfs, axis=0)
+        stds = np.std(allinfs, axis=0)
+
+        # means = means[:, 1:] # Before transient
+        # stds = stds[:, 1:]
+
+        xs = np.arange(means.shape[1]) * spldelta
+        for j in range(means.shape[0]):
+            # plt.errorbar(xs, means[j, :], stds[j, :])
+            plt.plot(xs, means[j, :])
+            plt.savefig(pjoin(outdir, '{:02d}.png'.format(j))); plt.close()
+
+##########################################################
 def main(outdir):
     info(inspect.stack()[0][3] + '()')
-    corrpath = './data/corrsall.csv'
-    plot_correlations_errbar(corrpath, nepochs=10, batchsz=30, outdir=outdir)
+
+    # corrpath = './data/corrsall.csv'
+    # plot_correlations_errbar(corrpath, nepochs=10, batchsz=30, outdir=outdir)
+
+    betasdir = './data/betas/'
+    analyze_sis(betasdir, nepochs=10, batchsz=30, outrootdir=outdir)
 
 ##########################################################
 if __name__ == "__main__":
