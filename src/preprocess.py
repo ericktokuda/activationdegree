@@ -259,8 +259,8 @@ def main(outdir):
     g = gorig.copy()
     i0 = int(ei0*n)
 
-    nepochs = 1e10
-    delta = 1e3
+    nepochs = int(1e10)
+    delta = int(1e3)
 
     t0 = time.time()
     walkstats  = simu_walk(g, nepochs, delta)
