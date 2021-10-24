@@ -96,27 +96,23 @@ def set_initial_status(n, i0):
     return status
 
 ##########################################################
-def simu_sis(gin, beta, gamma, i0, trimsz, tmax, spldelta):
-    """Simulate the SIS epidemics model
-    """
+def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
+    """Simulate the SIS epidemics model """
     adj = np.array(gin.get_adjacency().data)
     n = gin.vcount()
 
     status = set_initial_status(n, i0)
 
-    ninfected = np.zeros(int(tmax / spldelta), dtype=int)
     for i in range(trimsz):
         status, _ = infection_step(adj, status, beta, gamma)
-        if i % spldelta == 0: ninfected[int(i / spldelta)] = np.sum(status)
 
     ninfections = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
         status, newinf = infection_step(adj, status, beta, gamma)
         ninfections += newinf
         j = i + trimsz
-        if j % spldelta == 0: ninfected[int(j / spldelta)] = np.sum(status)
 
-    return ninfections, np.sum(newinf), ninfected
+    return ninfections, np.sum(newinf)
 
 ##########################################################
 def find_closest_factors(n):
@@ -261,7 +257,7 @@ def run_experiment_lst(params):
 
 ##########################################################
 def run_experiment(top, n, k, degmode, nbatches, batchsz,
-                   paired, trimrel, wepochs, fepochs, fthesh,
+                   paired, trimrel, wepochs, fepochs, fthresh,
                    eepochs, ei0, ebeta, egamma, outrootdir, seed):
     """Removes @batchsz arcs, @nbatches times and evaluate three different dynamics.
     Calculates the correlation between vertex in-degree and the level of activity
@@ -293,15 +289,11 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
     degrees = np.zeros(shp, dtype=int)
     lfires = - np.ones(nbatches + 1, dtype=int) # Last step fires
     linfec = - np.ones(nbatches + 1, dtype=int) # Last step inf
-    spldelta = 100 # Sampling delta
-    infsample = int(eepochs / spldelta)
-    infperepoch = - np.ones((nbatches + 1, infsample), dtype=int)
 
     degrees[0, :] = g.degree(mode=degmode)
     vvisit[0, :] = simu_walk(0, g, wepochs, wtrim)
-    vfires[0, :], lfires[0] = simu_intandfire(g, fthesh, fepochs, ftrim)
-    r = simu_sis(g, ebeta, egamma, i0, etrim, eepochs, spldelta)
-    vinfec[0, :], linfec[0], infperepoch[0, :] = r
+    vfires[0, :], lfires[0] = simu_intandfire(g, fthresh, fepochs, ftrim)
+    vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
 
     pedges = get_pairs_conn_vertices(g)
 
@@ -315,12 +307,11 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
 
         degrees[i+1, :] = g.degree(mode=degmode)
         vvisit[i+1, :] = simu_walk(i+1, g, wepochs, wtrim)
-        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthesh, fepochs, ftrim)
-        r = simu_sis(g, ebeta, egamma, i0, etrim, eepochs, spldelta)
-        vinfec[i+1, :], linfec[i+1], infperepoch[i+1, :] = r
+        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthresh, fepochs, ftrim)
+        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
 
     for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec',
-              'nattempts', 'infperepoch', 'paired']:
+              'nattempts', 'paired']:
         np.save(pjoin(outdir, f + '.npy'), locals()[f])
 
     corrs = []
@@ -328,6 +319,7 @@ def run_experiment(top, n, k, degmode, nbatches, batchsz,
         c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :], vinfec[i, :],
                 degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2, c3, int(paired)])
+
     return corrs
 
 ##########################################################
@@ -401,7 +393,8 @@ def calculate_correlations(vvisits, vfires, vinfec, degrees, epoch, outdir):
 #############################################################
 def get_rgg_params(n, avgdegree):
     rggcatalog = {
-        '600,6': [628, 0.0562]
+        '600,6': [628, 0.0562],
+        '1000,6': [1041, 0.0433]
     }
 
     k = '{},{}'.format(n, avgdegree)
@@ -442,7 +435,7 @@ def main(cfg, nprocs):
         for j in range(cfg.nbatches + 1):
             data.append(corrs[i][j])
 
-    cols = ['top', 'n', 'realiz', 'epoch', 'corrvisits', 'corrfires', 'corrinfec']
+    cols = ['top', 'n', 'realiz', 'epoch', 'corrvisits', 'corrfires', 'corrinfec', 'paired']
     pd.DataFrame(data, columns=cols).to_csv(pjoin(cfg.outdir, 'corrs.csv'), index=False)
 
 ##########################################################
