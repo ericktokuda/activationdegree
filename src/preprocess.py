@@ -185,7 +185,7 @@ def simu_walk(g, walklen, delta):
     stats = []
     m = int(walklen / delta)
     for i in range(1, m):
-        walk = walkfull[(i-1) * m : i *m]
+        walk = walkfull[(i-1) * delta : i*delta]
         vs, cs = np.unique(walk, return_counts=True)
         visits = np.zeros(g.vcount(), dtype=int)
         for v, c in zip(vs, cs):
@@ -209,22 +209,6 @@ def generate_conn_graph(top, n, k, maxtries=100):
     info('{} tries to generate a undirected connected graph'.format(tries))
     return g, tries
 
-##########################################################
-def plot_graph(g, top, outdir):
-    """Plot graph"""
-    if top in ['gr', 'wx']:
-        aux = np.array([ [g.vs['x'][i], g.vs['y'][i]] for i in range(g.vcount()) ])
-    else:
-        if top in ['la', 'ws']:
-            layoutmodel = 'grid'
-        else:
-            layoutmodel = 'fr'
-        aux = np.array(g.layout(layoutmodel).coords)
-    coords = -1 + 2*(aux - np.min(aux, 0))/(np.max(aux, 0)-np.min(aux, 0)) # minmax
-
-    f = pjoin(outdir, 'graph_und.png')
-    igraph.plot(g, f, layout=coords.tolist())
-
 #############################################################
 def get_rgg_params(n, avgdegree):
     rggcatalog = {
@@ -240,13 +224,8 @@ def get_rgg_params(n, avgdegree):
 
     return n, scipy.optimize.brentq(f, 0.0001, 10000)
 
+##########################################################
 def plot_stats(stats, lbl, nepochs, delta, outdir):
-    # W = 640; H = 480
-    # fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
-    # ax.scatter(x, y)
-    # outpath = pjoin(outdir, lbel + '.png')
-    # plt.savefig(outpath)
-
     figscale = 8
     fig, axs = plt.subplots(1, 2, squeeze=True,
                 figsize=(2*figscale, figscale))
@@ -280,8 +259,8 @@ def main(outdir):
     g = gorig.copy()
     i0 = int(ei0*n)
 
-    nepochs = 1000000
-    delta = 100
+    nepochs = 1e10
+    delta = 1e3
 
     t0 = time.time()
     walkstats  = simu_walk(g, nepochs, delta)
