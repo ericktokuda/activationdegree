@@ -259,7 +259,7 @@ def main(outdir):
     g = gorig.copy()
     i0 = int(ei0*n)
 
-    nepochs = int(1e10)
+    nepochs = int(1e7)
     delta = int(1e3)
 
     t0 = time.time()
