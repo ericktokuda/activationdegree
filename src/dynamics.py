@@ -78,13 +78,12 @@ def infection_step(adj, status0, beta, gamma):
     aux = adj[status1.astype(bool), :] # Filter out arcs departing from recovered
     kins = np.sum(aux, axis=0)
     probs = 1 - np.power(q, kins) # Prob of infecting is (1-q^kin)
-    posprobids = np.where(probs)[0]
+    posprobids = np.where(probs)[0] # Disregard vtx if it has no infectious neigh
     posprobs = probs[posprobids]
     randvals = np.random.rand(len(posprobs))
     relinds = np.where(randvals < posprobs)
     status2[posprobids[relinds]] = 1
-    balance = np.sum(status2) - np.sum(status0)
-
+    # balance = np.sum(status2) - np.sum(status0)
     return status2, status2 - status1
 
 ##########################################################
@@ -394,7 +393,9 @@ def calculate_correlations(vvisits, vfires, vinfec, degrees, epoch, outdir):
 def get_rgg_params(n, avgdegree):
     rggcatalog = {
         '600,6': [628, 0.0562],
-        '1000,6': [1041, 0.0433]
+        '1000,6': [1041, 0.0433],
+        '3000,6': [3085, 0.0250],
+        '5000,6': [5128, 0.01934],
     }
 
     k = '{},{}'.format(n, avgdegree)
