@@ -232,7 +232,10 @@ def generate_conn_graph(top, n, k, maxtries=100):
     conn = False
     tries = 0
     while not conn:
-        g = generate_data(top, n, k)
+        if os.path.exists(top):
+            g = igraph.Graph.Read(top)
+        else:
+            g = generate_data(top, n, k)
         conn = g.is_connected()
         if tries > maxtries:
             raise Exception('Could not find a connected graph')
@@ -255,20 +258,22 @@ def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
-def run_experiment(top, n, k, degmode, nbatches, batchsz,
+def run_experiment(top, nreq, kreq, degmode, nbatches, batchsz,
                    paired, trimrel, wepochs, fepochs, fthresh,
                    eepochs, ei0, ebeta, egamma, outrootdir, seed):
-    """Removes @batchsz arcs, @nbatches times and evaluate three different dynamics.
-    Calculates the correlation between vertex in-degree and the level of activity
+    """Removes @batchsz arcs, @nbatches times and evaluate three different
+    dynamics.  Calculates the correlation between vertex in-degree and the
+    level of activity
     """
     np.random.seed(seed); random.seed(seed)
 
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
     os.makedirs(outdir, exist_ok=True)
 
-    gorig, tries = generate_conn_graph(top, n, k) # g is connected
+    gorig, tries = generate_conn_graph(top, nreq, kreq) # g is connected
     plot_graph(gorig, top, outdir)
     gorig.to_directed() # g is strongly connected
+    n = gorig.vcount(); k = gorig.ecount() / gorig.vcount() * 2
 
     nattempts = np.zeros(nbatches + 1, dtype=int)
     nattempts[0] = tries
