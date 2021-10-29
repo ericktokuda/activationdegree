@@ -258,13 +258,12 @@ def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
-def run_experiment(top, nreq, kreq, degmode, nbatches, batchsz,
-                   paired, trimrel, wepochs, fepochs, fthresh,
-                   eepochs, ei0, ebeta, egamma, outrootdir, seed):
+def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
+                   paired, trimrel, fthresh,
+                   ei0, ebeta, egamma, outrootdir, seed):
     """Removes @batchsz arcs, @nbatches times and evaluate three different
     dynamics.  Calculates the correlation between vertex in-degree and the
-    level of activity
-    """
+    level of activity """
     np.random.seed(seed); random.seed(seed)
 
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
@@ -273,16 +272,27 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, batchsz,
     gorig, tries = generate_conn_graph(top, nreq, kreq) # g is connected
     plot_graph(gorig, top, outdir)
     gorig.to_directed() # g is strongly connected
-    n = gorig.vcount(); k = gorig.ecount() / gorig.vcount() * 2
+    n = gorig.vcount()
+    narcs = gorig.ecount()
+    k = narcs / gorig.vcount() * 2
+    # In the ideal case, with no repeated:
+    ntoremove =  np.ceil((1 - minrecipr) * narcs).astype(int)
+    rem = ntoremove % nbatches
+    if rem != 0: ntoremove = (int(ntoremove / nbatches) + 1) * nbatches
+    if (ntoremove % 2) != 0: ntoremove += 1 # Paired removal
+    batchsz =  int(ntoremove / nbatches)
 
     nattempts = np.zeros(nbatches + 1, dtype=int)
     nattempts[0] = tries
 
     initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
-    wtrim = int(wepochs * trimrel)
-    ftrim = int(fepochs * trimrel)
-    etrim = int(eepochs * trimrel)
+    nepochs = n * 10000
+    trim = int(nepochs * trimrel)
+    # wtrim = int(nepochs * trimrel)
+    # ftrim = int(nepochs * trimrel)
+    # etrim = int(nepochs * trimrel)
+    wtrim = ftrim = etrim = trim
     i0 = int(ei0*n)
 
     shp = (nbatches+1, g.vcount())
@@ -295,9 +305,9 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, batchsz,
     linfec = - np.ones(nbatches + 1, dtype=int) # Last step inf
 
     degrees[0, :] = g.degree(mode=degmode)
-    vvisit[0, :] = simu_walk(0, g, wepochs, wtrim)
-    vfires[0, :], lfires[0] = simu_intandfire(g, fthresh, fepochs, ftrim)
-    vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
+    vvisit[0, :] = simu_walk(0, g, nepochs, wtrim)
+    vfires[0, :], lfires[0] = simu_intandfire(g, fthresh, nepochs, ftrim)
+    vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, nepochs)
 
     pedges = get_pairs_conn_vertices(g)
 
@@ -310,9 +320,9 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, batchsz,
             nattempts[i+1] += m
 
         degrees[i+1, :] = g.degree(mode=degmode)
-        vvisit[i+1, :] = simu_walk(i+1, g, wepochs, wtrim)
-        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthresh, fepochs, ftrim)
-        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, eepochs)
+        vvisit[i+1, :] = simu_walk(i+1, g, nepochs, wtrim)
+        vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthresh, nepochs, ftrim)
+        vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, nepochs)
 
     for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec',
               'nattempts', 'paired']:
@@ -320,8 +330,8 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, batchsz,
 
     corrs = []
     for i in range(nbatches + 1): # nbatches
-        c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :], vinfec[i, :],
-                degrees[i, :], i, outdir)
+        c1, c2, c3 = calculate_correlations(vvisit[i, :], vfires[i, :],
+                vinfec[i, :], degrees[i, :], i, outdir)
         corrs.append([top, g.vcount(), seed, i, c1, c2, c3, int(paired)])
 
     return corrs
@@ -414,7 +424,6 @@ def get_rgg_params(n, avgdegree):
 
 ##########################################################
 def main(cfg, nprocs):
-    assert cfg.batchsz % 2 == 0 # Standardization, when considering paired removal
 
     np.random.seed(cfg.seed); random.seed(cfg.seed)
 
@@ -423,9 +432,9 @@ def main(cfg, nprocs):
     params = []
     for i in range(cfg.nrealizations):
         params.append( [cfg.top, cfg.nvertices, cfg.avgdegree, cfg.degmode,
-                        cfg.nbatches, cfg.batchsz, cfg.paired,
-                        cfg.trimrel, cfg.wepochs, cfg.fepochs, cfg.fthresh,
-                        cfg.eepochs, cfg.ei0, cfg.ebeta, cfg.egamma,
+                        cfg.nbatches, cfg.minrecipr, cfg.paired,
+                        cfg.trimrel, cfg.fthresh,
+                        cfg.ei0, cfg.ebeta, cfg.egamma,
                         cfg.outdir, seeds[i]] )
 
     if nprocs == 1:
