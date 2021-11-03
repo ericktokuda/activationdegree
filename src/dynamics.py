@@ -287,7 +287,7 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
 
     initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
-    nepochs = n * 1000
+    nepochs = n * 10000
     trim = int(nepochs * trimrel)
     # wtrim = int(nepochs * trimrel)
     # ftrim = int(nepochs * trimrel)
