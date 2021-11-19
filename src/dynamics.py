@@ -107,7 +107,7 @@ def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
 
     ninfections = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
-        if (i % 10000) == 0: info('SIS step {}'.format(i)
+        if (i % 10000) == 0: info('SIS step {}'.format(i))
         status, newinf = infection_step(adj, status, beta, gamma)
         ninfections += newinf
         j = i + trimsz
