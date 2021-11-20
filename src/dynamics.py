@@ -288,7 +288,7 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
 
     initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
-    nepochs = n * 10000
+    nepochs = n 
     trim = int(nepochs * trimrel)
     # wtrim = int(nepochs * trimrel)
     # ftrim = int(nepochs * trimrel)
@@ -409,6 +409,7 @@ def calculate_correlations(vvisits, vfires, vinfec, degrees, epoch, outdir):
 def get_rgg_params(n, avgdegree):
     rggcatalog = {
         '600,6': [628, 0.0562],
+        '800,6': [835, 0.0485],
         '1000,6': [1041, 0.0433],
         '3000,6': [3085, 0.0250],
         '5000,6': [5128, 0.01934],
