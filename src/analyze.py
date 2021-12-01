@@ -40,12 +40,12 @@ def plot_correlations_errbar(corrpath, nepochs, batchsz, outdir):
                 ys = perepoch.mean()[attrib]
                 yerrs = perepoch.std()[attrib]
                 z = ax.errorbar(xs, ys, yerrs, label=top, marker=marker,
-                                c=PALETTE[j], alpha=.7)
+                                c=PALETTE[j], alpha=.5)
                 pp += z
 
         ax.set_xlabel('Number of arcs removed')
         ax.set_ylabel('Pearson correlation (degree x ' + attrib + ')')
-        ax.set_ylim(0.5, 1.01)
+        # ax.set_ylim(0.0, 1.01)
         # l = plt.legend([(pp[0], pp[1])], ['Two keys'], numpoints=1,
                # handler_map={tuple: HandlerTuple(ndivide=None)})
         plt.legend()
@@ -83,8 +83,9 @@ def analyze_sis(betasdir, nepochs, batchsz, outrootdir):
 def main(outdir):
     info(inspect.stack()[0][3] + '()')
 
-    # corrpath = './data/corrsall.csv'
-    # plot_correlations_errbar(corrpath, nepochs=10, batchsz=30, outdir=outdir)
+    corrpath = './data/corrsall.csv'
+    plot_correlations_errbar(corrpath, nepochs=10, batchsz=30, outdir=outdir)
+    return
 
     betasdir = './data/betas/'
     analyze_sis(betasdir, nepochs=10, batchsz=30, outrootdir=outdir)

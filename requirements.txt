@@ -1,0 +1,7 @@
+pip
+numpy
+matplotlib
+python-igraph
+scipy
+pandas
+cairocffi
