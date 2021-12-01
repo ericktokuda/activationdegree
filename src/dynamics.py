@@ -288,7 +288,7 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
 
     initial_check(nbatches, batchsz, gorig)
     g = gorig.copy()
-    nepochs = n * 1000
+    nepochs = n * 5000
     trim = int(nepochs * trimrel)
     # wtrim = int(nepochs * trimrel)
     # ftrim = int(nepochs * trimrel)
@@ -326,7 +326,7 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
         vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, nepochs)
 
     for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec',
-              'nattempts', 'paired']:
+              'nattempts']:
         np.save(pjoin(outdir, f + '.npy'), locals()[f])
 
     corrs = []

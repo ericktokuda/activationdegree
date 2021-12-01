@@ -45,10 +45,10 @@ def plot_correlations_errbar(corrpath, nepochs, batchsz, outdir):
 
         ax.set_xlabel('Number of arcs removed')
         ax.set_ylabel('Pearson correlation (degree x ' + attrib + ')')
-        # ax.set_ylim(0.0, 1.01)
+        ax.set_ylim(-0.1, 1.01)
         # l = plt.legend([(pp[0], pp[1])], ['Two keys'], numpoints=1,
                # handler_map={tuple: HandlerTuple(ndivide=None)})
-        plt.legend()
+        plt.legend(loc='lower left')
         outpath = pjoin(outdir, '{}.png'.format(attrib))
         plt.savefig(outpath); plt.close()
 
