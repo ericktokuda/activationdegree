@@ -29,27 +29,45 @@ def plot_correlations_errbar(corrpath, nepochs, batchsz, outdir):
     df = pd.read_csv(corrpath)
     xs = [ i * batchsz for i in range(nepochs+1)]
 
-    for attrib in ['corrvisits', 'corrfires', 'corrinfec']:
-        fig, ax = plt.subplots(figsize=(W*.01, H*.01), dpi=100)
+    keylbls =  ['visits', 'fires', 'infections']
+    for i, key in enumerate(['corrvisits', 'corrfires', 'corrinfec']):
+        fig, ax = plt.subplots(figsize=(W*.011, H*.01), dpi=100)
         pp = []
-        for paired in np.unique(df.paired):
-            marker = 'o' if paired else 'x'
-            df2 = df.loc[df.paired == paired]
-            for j, top in enumerate(np.unique(df2.top)):
+        # for paired in np.unique(df.paired):
+            # marker = 'o' if paired else 'x'
+            # df2 = df.loc[df.paired == paired]
+            # for j, top in enumerate(np.unique(df2.top)):
+                # perepoch = df2.loc[df2.top == top].groupby('epoch')
+                # ys = perepoch.mean()[key]
+                # yerrs = perepoch.std()[key]
+                # lab = '{} {}coupled'.format(top.upper(), '' if paired else 'un')
+                # z = ax.errorbar(xs, ys, yerrs, label=lab, marker=marker,
+                                # c=PALETTE[j], alpha=.5)
+                # pp += z
+
+
+        for j, top in enumerate(np.unique(df.top)):
+            for paired in np.unique(df.paired):
+                marker = 'o' if paired else 'x'
+                df2 = df.loc[df.paired == paired]
                 perepoch = df2.loc[df2.top == top].groupby('epoch')
-                ys = perepoch.mean()[attrib]
-                yerrs = perepoch.std()[attrib]
-                z = ax.errorbar(xs, ys, yerrs, label=top, marker=marker,
+
+                ys = perepoch.mean()[key]
+                yerrs = perepoch.std()[key]
+                lab = '{} {}coupled'.format(top.upper(), '' if paired else 'un')
+                z = ax.errorbar(xs, ys, yerrs, label=lab, marker=marker,
                                 c=PALETTE[j], alpha=.5)
                 pp += z
 
         ax.set_xlabel('Number of arcs removed')
-        ax.set_ylabel('Pearson correlation (degree x ' + attrib + ')')
-        ax.set_ylim(-0.1, 1.01)
+        ax.set_ylabel('Correlation (degree x ' + keylbls[i] + ')')
+        ax.set_ylim(-0.1, 1.05)
         # l = plt.legend([(pp[0], pp[1])], ['Two keys'], numpoints=1,
                # handler_map={tuple: HandlerTuple(ndivide=None)})
-        plt.legend(loc='lower left')
-        outpath = pjoin(outdir, '{}.png'.format(attrib))
+        # plt.legend(loc='lower left')
+        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        outpath = pjoin(outdir, '{}.pdf'.format(key))
+        plt.tight_layout()
         plt.savefig(outpath); plt.close()
 
 ##########################################################
@@ -84,7 +102,7 @@ def main(outdir):
     info(inspect.stack()[0][3] + '()')
 
     corrpath = './data/corrsall.csv'
-    plot_correlations_errbar(corrpath, nepochs=10, batchsz=30, outdir=outdir)
+    plot_correlations_errbar(corrpath, nepochs=10, batchsz=360, outdir=outdir)
     return
 
     betasdir = './data/betas/'
