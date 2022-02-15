@@ -58,6 +58,15 @@ def simu_intandfire(gin, threshold, tmax, trimsz):
         charge_gain = A.dot(is_spiking)
         acc = acc - acc*is_spiking + charge_gain
 
+    # firesall = np.zeros((g.vcount(), tmax))
+    # acc = initial_charges.copy()
+    # for i in range(tmax):
+        # is_spiking2 = (acc >= threshold)
+        # firesall[:, i] = is_spiking2.astype(int)
+        # charge_gain = A.dot(is_spiking2)
+        # acc = acc - acc*is_spiking2 + charge_gain
+    # np.savetxt('/tmp/perstep_nfires.txt', np.sum(firesall, axis=0))
+
     return fires, np.sum(is_spiking)
 
 ##########################################################
@@ -102,15 +111,20 @@ def simu_sis(gin, beta, gamma, i0, trimsz, tmax):
 
     status = set_initial_status(n, i0)
 
+    # ninfall = np.zeros((gin.vcount(), tmax))
+
     for i in range(trimsz):
-        status, _ = infection_step(adj, status, beta, gamma)
+        status, newinf = infection_step(adj, status, beta, gamma)
+        # ninfall[:, i] = newinf
 
     ninfections = np.zeros(n, dtype=int)
     for i in range(tmax-trimsz):
-        if (i % 10000) == 0: info('SIS step {}'.format(i))
+        # if (i % 10000) == 0: info('SIS step {}'.format(i))
         status, newinf = infection_step(adj, status, beta, gamma)
         ninfections += newinf
         j = i + trimsz
+        # ninfall[:, i+trimsz] = newinf
+    # np.savetxt('/tmp/perstep_ninfec.txt', np.sum(ninfall, axis=0))
 
     return ninfections, np.sum(newinf)
 
@@ -124,7 +138,7 @@ def find_closest_factors(n):
 ##########################################################
 def generate_data(top, n, k):
     """Generate data"""
-    info(inspect.stack()[0][3] + '()')
+    # info(inspect.stack()[0][3] + '()')
     m = round(k / 2)
 
     h, w = find_closest_factors(n)
@@ -175,12 +189,12 @@ def remove_two_arcs_conn(g, premoval, pedges, maxtries=100):
     """Remove two arcs, while keeping @g strongly connected. If @premoval
     is true, the arcs are removed in pair, in which case a random edge is
     taken from @pedges. Return the new graph and the attempts to remove"""
-    
+
     ids = []
     if premoval:
         pedges2  = pedges.copy()
         np.random.shuffle(pedges2)
-        
+
         for v1, v2 in pedges2:
             e1 = g.get_eid(v1, v2) # forward arc
             e2 = g.get_eid(v2, v1) # backward arc
@@ -210,15 +224,28 @@ def simu_walk(idx, g, walklen, trimsz):
     trans = adj / np.sum(adj, axis=1).reshape(adj.shape[0], -1)
     startnode = np.random.randint(0, g.vcount())
     walk = randomwalk(walklen, startnode, trans)
+
     vs, cs = np.unique(walk[trimsz:], return_counts=True)
     visits = np.zeros(g.vcount(), dtype=int)
     for v, c in zip(vs, cs):
         visits[v] = c
+
+    # visitsall = np.zeros((g.vcount(), walklen), dtype=float)
+    # visitsall[startnode, 0] = 1.0
+    # for vid in range(g.vcount()):
+        # previd = 0
+        # walkids = np.where(walk == vid)[0]
+        # for j, walkid in enumerate(walkids):
+            # visitsall[vid, walkid:] = j + 1
+    # visitsallrel = visitsall / np.sum(visitsall, axis=0)
+    # stds = np.std(visitsallrel, axis=0)
+    # np.savetxt('/tmp/perstep_wvisits.txt', stds)
+
     return visits
 
 ##########################################################
 def update_pedges(arcs, pedges):
-    """Update the list of paired edges, @pedges, by removing the @arcs."""
+    """Update the list of paired edges, @pedges, by removing the the two arcs (@arcs)."""
     pair1 = (np.min(arcs[0]), np.max(arcs[0]))
     pair2 = (np.min(arcs[1]), np.max(arcs[1]))
 
@@ -241,11 +268,11 @@ def generate_conn_graph(top, n, k, maxtries=100):
         if tries > maxtries:
             raise Exception('Could not find a connected graph')
         tries += 1
-    info('{} tries to generate a undirected connected graph'.format(tries))
+    # info('{} tries to generate a undirected connected graph'.format(tries))
     return g, tries
 
 ##########################################################
-def get_pairs_conn_vertices(g):
+def get_all_pairs_conn_vertices(g):
     """Get every pair of vertices with an arc in-between. The returned 2-uple
     is ordered by vertexid. For example: [(2, 5), (6, 10)]"""
     pedges = set()
@@ -259,61 +286,67 @@ def run_experiment_lst(params):
     return run_experiment(*params)
 
 ##########################################################
-def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
-                   paired, trimrel, fthresh,
-                   ei0, ebeta, egamma, outrootdir, seed):
+def calculate_batchsize(minrecipr, narcs, nbatches):
+    ntoremove =  np.ceil((1 - minrecipr) * narcs).astype(int)
+    rem = ntoremove % nbatches
+    if rem != 0: ntoremove = (int(ntoremove / nbatches) + 1) * nbatches
+    if (ntoremove % 2) != 0: ntoremove += 1 # Paired removal
+    batchsz =  int(ntoremove / nbatches)
+    return batchsz
+
+##########################################################
+def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr, paired, trimrel,
+                   fthresh, ei0, ebeta, egamma, outrootdir, seed, nrealizations):
     """Removes @batchsz arcs, @nbatches times and evaluate three different
     dynamics.  Calculates the correlation between vertex in-degree and the
     level of activity """
     np.random.seed(seed); random.seed(seed)
 
+    expid = nrealizations - seed
+    info('Started expid', expid)
     outdir = pjoin(outrootdir, '{:02d}'.format(seed))
     os.makedirs(outdir, exist_ok=True)
 
-    gorig, tries = generate_conn_graph(top, nreq, kreq) # g is connected
+    gorig, tries0 = generate_conn_graph(top, nreq, kreq) # g is connected
     plot_graph(gorig, top, outdir)
     gorig.to_directed() # g is strongly connected
     n = gorig.vcount()
     narcs = gorig.ecount()
     k = narcs / gorig.vcount() * 2
     # In the ideal case, with no repeated:
-    ntoremove =  np.ceil((1 - minrecipr) * narcs).astype(int)
-    rem = ntoremove % nbatches
-    if rem != 0: ntoremove = (int(ntoremove / nbatches) + 1) * nbatches
-    if (ntoremove % 2) != 0: ntoremove += 1 # Paired removal
-    batchsz =  int(ntoremove / nbatches)
+
+    # batchsz = 0 # TODO: remove this
+    batchsz = calculate_batchsize(minrecipr, narcs, nbatches)
 
     nattempts = np.zeros(nbatches + 1, dtype=int)
-    nattempts[0] = tries
+    nattempts[0] = tries0
 
-    initial_check(nbatches, batchsz, gorig)
+    sanity_check(nbatches, batchsz, gorig)
     g = gorig.copy()
-    nepochs = n * 5000
+    nepochs = n * 100
     trim = int(nepochs * trimrel)
-    # wtrim = int(nepochs * trimrel)
-    # ftrim = int(nepochs * trimrel)
-    # etrim = int(nepochs * trimrel)
     wtrim = ftrim = etrim = trim
     i0 = int(ei0*n)
 
     shp = (nbatches+1, g.vcount())
     err = - np.ones(shp, dtype=int)
+    degrees = np.zeros(shp, dtype=int)
     vvisit = np.zeros(shp, dtype=int) # Vertex visits
     vfires = np.zeros(shp, dtype=int) # Vertex fires
     vinfec = np.zeros(shp, dtype=int) # Vertex infections
-    degrees = np.zeros(shp, dtype=int)
     lfires = - np.ones(nbatches + 1, dtype=int) # Last step fires
     linfec = - np.ones(nbatches + 1, dtype=int) # Last step inf
 
+    # Firt step (step 0) considers the unaltered graph
     degrees[0, :] = g.degree(mode=degmode)
-    vvisit[0, :] = simu_walk(0, g, nepochs, wtrim)
+    vvisit[0, :]  = simu_walk(0, g, nepochs, wtrim)
     vfires[0, :], lfires[0] = simu_intandfire(g, fthresh, nepochs, ftrim)
     vinfec[0, :], linfec[0] = simu_sis(g, ebeta, egamma, i0, etrim, nepochs)
 
-    pedges = get_pairs_conn_vertices(g)
+    pedges = get_all_pairs_conn_vertices(g)
 
     for i in range(nbatches):
-        info('Step {}'.format(i))
+        info('Expid {}, batch {}/{}'.format(expid, i, nbatches))
         for _ in range(batchsz):
             try: g, arcs, m = remove_two_arcs_conn(g, paired, pedges)
             except: raise Exception('Could not remove arc in step {}'.format(i))
@@ -325,8 +358,7 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr,
         vfires[i+1, :], lfires[i+1]  = simu_intandfire(g, fthresh, nepochs, ftrim)
         vinfec[i+1, :], linfec[i+1] = simu_sis(g, ebeta, egamma, i0, etrim, nepochs)
 
-    for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec',
-              'nattempts']:
+    for f in ['degrees', 'vvisit', 'vfires', 'vinfec', 'lfires', 'linfec', 'nattempts']:
         np.save(pjoin(outdir, f + '.npy'), locals()[f])
 
     corrs = []
@@ -354,7 +386,7 @@ def plot_graph(g, top, outdir):
     igraph.plot(g, f, layout=coords.tolist())
 
 ##########################################################
-def initial_check(nbatches, batchsz, g):
+def sanity_check(nbatches, batchsz, g):
     """Check whether too many arcs are being removed."""
     if (nbatches * batchsz) > (0.75 * g.ecount()):
         info('Consider altering nbatches, batchsz, and avgdegree.')
@@ -388,20 +420,29 @@ def calculate_correlations(vvisits, vfires, vinfec, degrees, epoch, outdir):
     if np.sum(vvisits):
         wvisitsr = vvisits / np.sum(vvisits)
         c1 = pearsonr(degrees, wvisitsr)[0]
-        t1 = 'Relative number of visits'
-        plot_correlation_degree(wvisitsr, t1, degrees, c1, woutpath)
+        try:
+            t1 = 'Relative number of visits'
+            plot_correlation_degree(wvisitsr, t1, degrees, c1, woutpath)
+        except:
+            pass
 
     if np.sum(vfires):
         nfiresr = vfires / np.sum(vfires)
         c2 = pearsonr(degrees, nfiresr)[0]
         t2 = 'Relative number of fires'
-        plot_correlation_degree(nfiresr, t2, degrees, c2, foutpath)
+        try:
+            plot_correlation_degree(nfiresr, t2, degrees, c2, foutpath)
+        except:
+            pass
 
     if np.sum(vinfec):
         ninfecr = vinfec / np.sum(vinfec)
         c3 = pearsonr(degrees, ninfecr)[0]
         t3 = 'Relative number of infections'
-        plot_correlation_degree(ninfecr, t3, degrees, c3, eoutpath)
+        try:
+            plot_correlation_degree(ninfecr, t3, degrees, c3, eoutpath)
+        except:
+            pass
 
     return c1, c2, c3
 
@@ -437,7 +478,7 @@ def main(cfg, nprocs):
                         cfg.nbatches, cfg.minrecipr, cfg.paired,
                         cfg.trimrel, cfg.fthresh,
                         cfg.ei0, cfg.ebeta, cfg.egamma,
-                        cfg.outdir, seeds[i]] )
+                        cfg.outdir, seeds[i], cfg.nrealizations] )
 
     if nprocs == 1:
         corrs = [ run_experiment_lst(p) for p in params ]
