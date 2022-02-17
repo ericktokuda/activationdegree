@@ -53,7 +53,7 @@ def plot_correlations_errbar(corrpath, nepochs, batchsz, outdir):
                 perepoch = df2.loc[df2.top == top].groupby('epoch')
 
                 ys = perepoch.mean()[key]
-                yerrs = perepoch.std()[key]
+                yerrs = perepoch.std()[key] / np.sqrt(perepoch.count()[key])
                 lab = '{} {}coupled'.format(top.upper(), '' if paired else 'un')
                 z = ax.errorbar(xs, ys, yerrs, label=lab, marker=marker,
                                 c=PALETTE[j], alpha=.5)
