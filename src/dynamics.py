@@ -163,14 +163,25 @@ def generate_data(top, n, k):
             g = gnew
             mindiff = np.abs(g.vcount() - n)
     elif top == 'sb':
-        if k == 5: x = 4.5
-        elif k == 6: x = 8.3
-        elif k == 7: x = 12.5
-        elif k == 8: x = 16.2
-        pref = (np.array([[14, 1], [1, x]]) / n).tolist()
+        if n == 1000:
+            if k == 5:   p1 = .004175
+            elif k == 6: p1 = .005015
+            elif k == 7: p1 = .005845
+        elif n == 2000:
+            if k == 5:   p1 = .002085
+            elif k == 6: p1 = .005200
+            elif k == 7: p1 = .002920
+            n = n + 5 # It is likely generate some isolated nodes
+        else:
+            p1 = 0.05
+
+        p2 = .15 * p1
+
+        pref = (np.array([[p1, p2], [p2, p1]])).tolist()
         n2 = n // 2
         szs = [ n2, n - n2 ]
         g = igraph.Graph.SBM(n, pref, szs, directed=False, loops=False)
+        g = g.clusters().giant()
     return g
 
 ##########################################################
@@ -255,20 +266,23 @@ def update_pedges(arcs, pedges):
 
 ##########################################################
 def generate_conn_graph(top, n, k, maxtries=100):
-    """Create a connected graph"""
+    """Create a strongly connected directed graph"""
     info(inspect.stack()[0][3] + '()')
-    conn = False
+
+    resonable_n = False
     tries = 0
-    while not conn:
+    while not resonable_n:
         if os.path.exists(top):
             g = igraph.Graph.Read(top)
         else:
             g = generate_data(top, n, k)
-        conn = g.is_connected()
+        resonable_n = np.abs(g.vcount() - n) < .05 * n
         if tries > maxtries:
             raise Exception('Could not find a connected graph')
         tries += 1
-    # info('{} tries to generate a undirected connected graph'.format(tries))
+
+    g.to_directed()
+    info('{} tries to generate a undirected connected graph'.format(tries))
     return g, tries
 
 ##########################################################
@@ -309,10 +323,10 @@ def run_experiment(top, nreq, kreq, degmode, nbatches, minrecipr, paired, trimre
 
     gorig, tries0 = generate_conn_graph(top, nreq, kreq) # g is connected
     plot_graph(gorig, top, outdir)
-    gorig.to_directed() # g is strongly connected
     n = gorig.vcount()
     narcs = gorig.ecount()
     k = narcs / gorig.vcount() * 2
+
     # In the ideal case, with no repeated:
 
     # batchsz = 0 # TODO: remove this
