@@ -181,7 +181,7 @@ def generate_data(top, n, k):
         n2 = n // 2
         szs = [ n2, n - n2 ]
         g = igraph.Graph.SBM(n, pref, szs, directed=False, loops=False)
-        g = g.clusters().giant()
+    g = g.clusters().giant()
     return g
 
 ##########################################################
